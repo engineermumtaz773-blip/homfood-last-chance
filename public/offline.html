@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#78977b">
+    <title>You're offline | Home Made Food</title>
+    <style>
+      *{box-sizing:border-box}body{display:grid;min-height:100vh;margin:0;padding:24px;place-items:center;background:radial-gradient(ellipse at 30% 65%,#e0eaff,transparent 42%),radial-gradient(ellipse at 75% 65%,#ffe7c6,transparent 40%),#fff;color:#171717;font-family:Arial,sans-serif;text-align:center}.card{max-width:520px;padding:48px 32px;border:1px solid #eee;border-radius:24px;background:#ffffffdf;box-shadow:0 14px 42px #0000000c}.mark{display:grid;width:68px;height:68px;margin:0 auto 22px;place-items:center;border-radius:50%;background:#78977b;color:white;font-family:Georgia,serif;font-size:38px}.kicker{color:#78977b;font-size:12px;font-weight:bold;letter-spacing:2px;text-transform:uppercase}h1{font-size:clamp(34px,8vw,52px);font-weight:500;letter-spacing:-2px}p{color:#737373;line-height:1.7}.button{display:inline-block;margin-top:18px;padding:15px 28px;border-radius:99px;background:#171717;color:#fff;text-decoration:none}
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <span class="mark">H</span>
+      <span class="kicker">Home Made Food</span>
+      <h1>You&apos;re offline</h1>
+      <p>Reconnect to the internet to browse the latest menu and place an order. Your cart remains saved on this device.</p>
+      <a class="button" href="/">Try again →</a>
+    </main>
+    <script>
+      (() => {
+        const host = location.hostname;
+        const local = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]" || host.endsWith(".localhost");
+        if (!local || !("serviceWorker" in navigator)) return;
+
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+          try {
+            const keys = await caches.keys();
+            await Promise.all(keys.filter((key) => key.startsWith("home-made-food-shell-")).map((key) => caches.delete(key)));
+          } catch (error) {
+            console.warn("Could not clear the localhost Home Made Food cache.", error);
+          }
+
+          if (hadController && navigator.serviceWorker.controller) {
+            try {
+              const reloadKey = "hmf-dev-sw-removed-at";
+              const lastReloadAt = Number(sessionStorage.getItem(reloadKey) || 0);
+              if (!Number.isFinite(lastReloadAt) || Date.now() - lastReloadAt > 5000) {
+                sessionStorage.setItem(reloadKey, String(Date.now()));
+                location.replace(location.href);
+              }
+            } catch {
+              location.replace(location.href);
+            }
+          } else {
+            try { sessionStorage.removeItem("hmf-dev-sw-removed-at"); } catch { /* Session storage is optional. */ }
+          }
+        }).catch((error) => console.error("Could not remove the localhost Home Made Food service worker.", error));
+      })();
+    </script>
+  </body>
+</html>

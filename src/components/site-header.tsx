@@ -1,0 +1,213 @@
+"use client";
+
+import Link from "next/link";
+import Image from "next/image";
+import { useState, useMemo } from "react";
+import type { Dish } from "@/lib/data";
+import type { FormEvent } from "react";
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
+import { useCart } from "@/components/cart-provider";
+import { AppInstallActions } from "@/components/app-install-actions";
+import { useSiteSettings, type Locale, type Theme } from "@/components/site-settings";
+import { acquireScrollLock } from "@/lib/scroll-lock";
+import { readCustomerProfile, CUSTOMER_AUTH_EVENT, type CustomerProfile } from "@/lib/customer";
+
+const links = [["menu", "/menu"], ["deals", "/daily-deals"], ["track", "/track-order"]] as const;
+const brandImage = "/image_6c70d8.jpg";
+
+export function SiteHeader() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [deliveryArea, setDeliveryArea] = useState("Bahawalpur");
+  const [query, setQuery] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [currency, setCurrency] = useState("PKR");
+  const router = useRouter();
+  const { items } = useCart();
+  const { t, locale, theme, setLocale, setTheme, localeNames, themeNames } = useSiteSettings();
+  const count = items.reduce((total, item) => total + item.quantity, 0);
+  const [customer, setCustomer] = useState<CustomerProfile | null>(null);
+  const [searchDishes, setSearchDishes] = useState<Dish[]>([]);
+
+  useEffect(() => {
+    const restorePreferences = window.setTimeout(() => {
+      setCustomer(readCustomerProfile());
+      setSoundEnabled(localStorage.getItem("hmf_sound") !== "off");
+      setCurrency(localStorage.getItem("hmf_currency") || "PKR");
+    }, 0);
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<CustomerProfile | null>;
+      setCustomer(ce.detail || null);
+    };
+    window.addEventListener(CUSTOMER_AUTH_EVENT, handler);
+    return () => {
+      window.clearTimeout(restorePreferences);
+      window.removeEventListener(CUSTOMER_AUTH_EVENT, handler);
+    };
+  }, []);
+  useEffect(() => {
+    fetch("/api/menu", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data: { dishes?: Dish[] } | null) => {
+      if (data?.dishes) setSearchDishes(data.dishes);
+    }).catch(() => undefined);
+  }, []);
+  const searchSuggestions = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    return value ? searchDishes.filter((dish) => `${dish.name} ${dish.category}`.toLowerCase().includes(value)).slice(0, 5) : [];
+  }, [query, searchDishes]);
+  function updateSound(enabled: boolean) {
+    setSoundEnabled(enabled);
+    localStorage.setItem("hmf_sound", enabled ? "on" : "off");
+  }
+  function updateCurrency(value: string) {
+    setCurrency(value);
+    localStorage.setItem("hmf_currency", value);
+  }
+  useEffect(() => {
+    if (!cartOpen) return;
+    const releaseScrollLock = acquireScrollLock();
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setCartOpen(false); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      releaseScrollLock();
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [cartOpen]);
+
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = query.trim();
+    router.push(value ? `/menu?search=${encodeURIComponent(value)}` : "/menu");
+    setMenuOpen(false);
+  }
+
+  return (
+    <div className="site-header-stack">
+      <div className="announcement-ticker" role="status" aria-label="Live store updates">
+        <div className="announcement-track">
+          <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
+          <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
+        </div>
+      </div>
+    <header className="site-header">
+      <button className="menu-toggle" aria-label="Toggle menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>☰</button>
+      <Link href="/" className="brand"><Image className="brand-mark" src={brandImage} width={52} height={52} alt="" unoptimized /><span>Home Made Food</span></Link>
+      <details className="delivery-location">
+        <summary><span className="location-pin" aria-hidden="true">⌖</span><span><small>{t("delivering")}</small><strong>{deliveryArea}⌄</strong></span></summary>
+        <div className="location-options">
+          <label htmlFor="delivery-area">{t("deliveryArea")}</label>
+          <select id="delivery-area" value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)}>
+            <option>Bahawalpur</option><option>Model Town</option><option>University Chowk</option><option>Goheer Town</option>
+          </select>
+        </div>
+      </details>
+      <form className="header-search" role="search" onSubmit={search}>
+        <span aria-hidden="true">⌕</span>
+        <input aria-label={t("searchPlaceholder")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("searchPlaceholder")} />
+        <button type="submit">{t("search")}</button>
+        {searchSuggestions.length > 0 && <div className="header-search-suggestions">{searchSuggestions.map((dish) => <button type="button" key={dish.id} onClick={() => { setQuery(dish.name); router.push(`/menu?search=${encodeURIComponent(dish.name)}`); }}>{dish.name}<small>{dish.category}</small></button>)}</div>}
+      </form>
+      <nav className={`header-links ${menuOpen ? "open" : ""}`}>
+        {links.map(([label, href]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)}>{t(label)}</Link>)}
+        <div className="settings-menu">
+          <button type="button" className="settings-trigger" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><span aria-hidden="true">⚙</span> Settings</button>
+          <AnimatePresence>
+            {settingsOpen && <motion.div className="settings-popover" initial={{ opacity: 0, y: -8, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: .98 }}>
+              <strong>Preferences</strong>
+              <label><span>{t("language")}</span><select aria-label={t("language")} value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>{Object.entries(localeNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
+              <label><span>{t("theme")}</span><select aria-label={t("theme")} value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>{Object.entries(themeNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
+              <label><span>Currency</span><select value={currency} onChange={(event) => updateCurrency(event.target.value)}><option value="PKR">PKR · Rs.</option><option value="USD">USD · $</option><option value="AED">AED · د.إ</option></select></label>
+              <button type="button" className="preference-toggle" onClick={() => updateSound(!soundEnabled)}><span>Sound effects</span><span className={`toggle-pill ${soundEnabled ? "on" : ""}`} aria-hidden="true"><i /></span></button>
+            </motion.div>}
+          </AnimatePresence>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: "app" }));
+          }}
+          style={{
+            padding: "6px 12px",
+            borderRadius: "9999px",
+            background: "#ecfdf5",
+            border: "1px solid #a7f3d0",
+            color: "#059669",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+          }}
+          title="Switch to PWA Dedicated App View"
+        >
+          <span>📱</span>
+          <span>App View</span>
+        </button>
+        <AppInstallActions variant="compact" />
+      </nav>
+      <div className="profile-menu">
+      <button
+        className="profile-link"
+        type="button"
+        aria-label={customer?.emailVerified ? t("profile") : "Sign In / Register"}
+        onClick={() => {
+          if (!customer?.emailVerified) {
+            window.dispatchEvent(
+              new CustomEvent("hmf_open_auth_modal", {
+                detail: { mode: "login", reason: "Sign in to access your profile, saved addresses, and live orders." },
+              })
+            );
+          } else setProfileOpen((open) => !open);
+        }}
+      >
+        {customer?.avatarUrl ? (
+          <Image
+            src={customer.avatarUrl}
+            alt=""
+            width={24}
+            height={24}
+            unoptimized
+            style={{ borderRadius: "50%", objectFit: "cover", display: "inline-block", marginRight: "6px" }}
+          />
+        ) : (
+          <span aria-hidden="true">👤</span>
+        )}
+        <span className="profile-link-label">
+          {customer?.name ? customer.name.split(" ")[0] : (customer?.emailVerified ? t("profile") : "Sign In")}
+        </span>
+        {customer?.emailVerified && (
+          <span
+            style={{
+              display: "inline-block",
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background: "#16a34a",
+              marginLeft: "4px",
+            }}
+            title="Verified"
+          />
+        )}
+      </button>
+      {customer?.emailVerified && profileOpen && <div className="profile-popover"><strong>{customer.name || "Welcome back"}</strong><Link href="/profile" onClick={() => setProfileOpen(false)}>Your profile</Link><Link href="/track-order" onClick={() => setProfileOpen(false)}>Order history</Link><button type="button" onClick={() => setProfileOpen(false)}>Close</button></div>}
+      </div>
+      <motion.button className="icon-button cart-trigger" type="button" aria-label={`${t("cart")}, ${count}`} aria-expanded={cartOpen} aria-controls="header-cart-drawer" onClick={() => setCartOpen((open) => !open)} whileHover={{ scale: 1.06 }} whileTap={{ scale: .92 }}>
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 8h14l-1 13H6L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>
+        <motion.span key={count} className="cart-count" initial={{ scale: .5 }} animate={{ scale: 1 }}>{count}</motion.span>
+      </motion.button>
+      {cartOpen && typeof document !== "undefined" ? createPortal(<motion.div className="cart-drawer-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onMouseDown={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
+          <motion.aside id="header-cart-drawer" className="cart-drawer" role="dialog" aria-modal="true" aria-label={t("cart")} initial={{ x: 28, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 24, opacity: 0 }} transition={{ type: "spring", stiffness: 300, damping: 30 }}>
+            <div className="cart-drawer-heading"><div><span>YOUR BAG</span><h2>{t("cart")}</h2></div><button type="button" aria-label="Close cart" onClick={() => setCartOpen(false)}>×</button></div>
+            {items.length ? <div className="cart-drawer-items">{items.map((item, index) => <div className="cart-drawer-line" key={`${item.id}-${item.portion}-${item.specialInstructions ?? index}`}><span><strong>{item.name}</strong><small>{item.portion} · Qty {item.quantity}</small></span><b>Rs. {item.price * item.quantity}</b></div>)}</div> : <p className="cart-drawer-empty">Your bag is waiting for something homemade.</p>}
+            <div className="cart-drawer-bottom"><div><span>Subtotal</span><strong>Rs. {items.reduce((sum, item) => sum + item.price * item.quantity, 0).toLocaleString()}</strong></div><Link href="/checkout" className="add-button" onClick={() => setCartOpen(false)}>Proceed to checkout <span aria-hidden="true">→</span></Link><Link href="/menu" className="cart-continue-link" onClick={() => setCartOpen(false)}>Continue browsing</Link></div>
+          </motion.aside>
+        </motion.div>, document.body) : null}
+    </header>
+    </div>
+  );
+}

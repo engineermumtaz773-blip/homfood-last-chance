@@ -1,0 +1,1133 @@
+{
+  "categories": [
+    "Breakfast",
+    "Lunch",
+    "Dinner",
+    "Fast Food",
+    "Traditional",
+    "Snacks",
+    "Sides",
+    "Desserts & Drinks",
+    "test category"
+  ],
+  "dishes": [
+    {
+      "id": 1001,
+      "name": "Aloo Wala Paratha",
+      "description": "Traditional homemade paratha stuffed with flavorful spiced potatoes, freshly prepared.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/34140436.jpg?width=1200",
+      "portions": [
+        {
+          "name": "regular",
+          "price": 150
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": false,
+      "dietaryTags": []
+    },
+    {
+      "id": 1002,
+      "name": "Anda Paratha",
+      "description": "Crispy golden paratha wrapped around a freshly spiced egg omelette.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/34140436.jpg?width=1200",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 150
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": false,
+      "dietaryTags": [
+        "Standard"
+      ]
+    },
+    {
+      "id": 1003,
+      "name": "Boiled Egg",
+      "description": "Farm-fresh boiled egg seasoned with black pepper and salt.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://images.unsplash.com/photo-1582722872445-44dc5f7e3c8f?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 60
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": false,
+      "dietaryTags": [
+        "Standard"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Chana Pulao",
+      "description": "Fragrant rice cooked with spiced chickpeas in a traditional home-style recipe.",
+      "category": "Dinner",
+      "image": "🍲",
+      "imageUrl": "https://grsbmyvtzlpamtmdkxax.supabase.co/storage/v1/object/public/dish-images/1786085394972-wag1iq4p.webp",
+      "portions": [
+        {
+          "name": "Full Plate",
+          "price": 250
+        },
+        {
+          "name": "Half Plate",
+          "price": 150
+        }
+      ],
+      "servingSize": "450 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.8,
+      "ratingCount": 126,
+      "available": true,
+      "translations": {
+        "ur": {
+          "name": "چنے کا پلاؤ",
+          "description": "خوشبودار چاول اور مصالحے دار چنوں سے تیار روایتی گھریلو پلاؤ۔"
+        },
+        "sd": {
+          "name": "چڻن جو پلائو",
+          "description": "خوشبودار چانورن ۽ مصالحي وارن چڻن مان تيار ڪيل روايتي گهر جو پلائو."
+        },
+        "ur-Latn": {
+          "name": "Channay ka Pulao",
+          "description": "Khushbudaar chawal aur masalay daar channay se tayyar riwayati ghar ka pulao."
+        }
+      },
+      "categories": [
+        "Dinner",
+        "Lunch"
+      ],
+      "featured": true,
+      "soldOut": false
+    },
+    {
+      "id": 1004,
+      "name": "Channay",
+      "description": "Homestyle slow-cooked chickpeas with warm traditional spices and gravy.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://d2gqo3h0psesgi.cloudfront.net/auto/foodine-restaurant-qgh7jn4k-food1.jpg",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 150
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": true,
+      "dietaryTags": [
+        "Vegetarian"
+      ]
+    },
+    {
+      "id": 1005,
+      "name": "Cheeni Wala Paratha",
+      "description": "Sweet homemade layered paratha with caramelized sugar inside.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/34140436.jpg?width=1200",
+      "portions": [
+        {
+          "name": "regular",
+          "price": 150
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": false,
+      "dietaryTags": [
+        "Vegetarian",
+        "Standard"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Chicken Biryani",
+      "description": "Layered basmati rice with tender chicken and warming homemade spices.",
+      "category": "Dinner",
+      "image": "🍛",
+      "imageUrl": "https://grsbmyvtzlpamtmdkxax.supabase.co/storage/v1/object/public/dish-images/1786168534750-wwykeqgn.webp",
+      "portions": [
+        {
+          "name": "Full Plate",
+          "price": 300
+        },
+        {
+          "name": "Half Plate",
+          "price": 250
+        }
+      ],
+      "servingSize": "500 g",
+      "dietaryTags": [
+        "Halal",
+        "Spicy"
+      ],
+      "rating": 4.9,
+      "ratingCount": 248,
+      "available": true,
+      "translations": {
+        "ur": {
+          "name": "چکن بریانی",
+          "description": "نرم چکن، باسمتی چاول اور گھریلو مصالحوں کی تہہ دار بریانی۔"
+        },
+        "sd": {
+          "name": "ڪڪڙ جي برياني",
+          "description": "نرم ڪڪڙ، باسمتي چانورن ۽ گهر جي مصالحن واري برياني."
+        },
+        "ur-Latn": {
+          "name": "Chicken Biryani",
+          "description": "Naram chicken, basmati chawal aur ghar ke masalon ki lazeez biryani."
+        }
+      },
+      "categories": [
+        "Dinner",
+        "Lunch"
+      ],
+      "featured": true,
+      "soldOut": false
+    },
+    {
+      "id": 3,
+      "name": "Chicken Karahi",
+      "description": "Tender chicken simmered with fresh tomatoes, green chilies and ginger.",
+      "category": "Dinner",
+      "image": "🥘",
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/97537704.jpg?width=1200",
+      "portions": [
+        {
+          "name": "Full Plate",
+          "price": 250
+        },
+        {
+          "name": "Half Plate",
+          "price": 200
+        }
+      ],
+      "servingSize": "500 g",
+      "dietaryTags": [
+        "Halal",
+        "Spicy"
+      ],
+      "rating": 4.8,
+      "ratingCount": 193,
+      "available": true,
+      "categories": [
+        "Dinner",
+        "Lunch"
+      ],
+      "featured": true,
+      "soldOut": false
+    },
+    {
+      "id": 1006,
+      "name": "Half Fry Egg",
+      "description": "Sunny side up fresh egg with runny yolk and crispy spiced edges.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "regular",
+          "price": 89.71
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": false,
+      "dietaryTags": [
+        "Standard"
+      ]
+    },
+    {
+      "id": 1007,
+      "name": "Milky Tea",
+      "description": "Traditional rich doodh patti chai brewed fresh with full-cream milk and cardamom.",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast"
+      ],
+      "imageUrl": "https://images.unsplash.com/photo-1571934811356-5cc061b6821f?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 100
+        }
+      ],
+      "available": true,
+      "soldOut": false,
+      "featured": false,
+      "dietaryTags": [
+        "Vegetarian",
+        "Standard"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Aloo Paratha",
+      "description": "Golden, flaky paratha filled with gently spiced potato.",
+      "category": "Breakfast",
+      "image": "🫓",
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/34140436.jpg?width=1200",
+      "portions": [
+        {
+          "name": "1 piece",
+          "price": 180
+        },
+        {
+          "name": "2 pieces",
+          "price": 320
+        }
+      ],
+      "servingSize": "1 piece · 220 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.7,
+      "ratingCount": 88,
+      "available": true,
+      "categories": [
+        "Breakfast"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 5,
+      "name": "Aloo Gobi",
+      "description": "Fresh cauliflower and spiced potatoes, cooked homestyle each day.",
+      "category": "Lunch",
+      "image": "🥗",
+      "imageUrl": "https://images.deliveryhero.io/image/fd-po/Products/1001108089.jpg?width=1200",
+      "portions": [
+        {
+          "name": "Full Plate",
+          "price": 280
+        },
+        {
+          "name": "1/2 Plate",
+          "price": 160
+        }
+      ],
+      "servingSize": "400 g",
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "rating": 4.6,
+      "ratingCount": 51,
+      "available": true,
+      "categories": [
+        "Lunch"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 6,
+      "name": "Daal Mash",
+      "description": "Comforting slow-cooked lentils finished with a fragrant tadka.",
+      "category": "Dinner",
+      "image": "🍛",
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/LH/w3dn-listing.jpg?height=1200&width=1200",
+      "portions": [
+        {
+          "name": "Full Plate",
+          "price": 280
+        },
+        {
+          "name": "1/2 Plate",
+          "price": 160
+        }
+      ],
+      "servingSize": "400 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.8,
+      "ratingCount": 73,
+      "available": true,
+      "categories": [
+        "Dinner"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 7,
+      "name": "Beef Nihari",
+      "description": "Slow-braised beef in a rich, aromatic gravy, finished with ginger.",
+      "category": "Traditional",
+      "image": "🥘",
+      "imageUrl": "https://foodfusion.com/wp-content/uploads/2020/07/Special-nihari-Recipe-by-Food-fusion-1.jpg",
+      "portions": [
+        {
+          "name": "Full Plate",
+          "price": 550
+        },
+        {
+          "name": "1/2 Plate",
+          "price": 320
+        }
+      ],
+      "servingSize": "450 g",
+      "dietaryTags": [
+        "Halal",
+        "Spicy"
+      ],
+      "rating": 4.9,
+      "ratingCount": 159,
+      "available": true,
+      "categories": [
+        "Traditional"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 8,
+      "name": "Beef Haleem",
+      "description": "A slow-cooked blend of wheat, lentils and tender beef with fried onions.",
+      "category": "Traditional",
+      "image": "🍲",
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/64860402.jpg?width=1200",
+      "portions": [
+        {
+          "name": "Full Bowl",
+          "price": 380
+        },
+        {
+          "name": "Family Bowl",
+          "price": 1050
+        }
+      ],
+      "servingSize": "400 g",
+      "dietaryTags": [
+        "Halal"
+      ],
+      "rating": 4.8,
+      "ratingCount": 91,
+      "available": true,
+      "categories": [
+        "Traditional"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 9,
+      "name": "BBQ Platter",
+      "description": "Smoky chicken tikka and seekh kebab with chutney and salad.",
+      "category": "Traditional",
+      "image": "🍢",
+      "imageUrl": "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Single",
+          "price": 680
+        },
+        {
+          "name": "For Two",
+          "price": 1250
+        }
+      ],
+      "servingSize": "500 g",
+      "dietaryTags": [
+        "Halal",
+        "Grilled"
+      ],
+      "rating": 4.9,
+      "ratingCount": 107,
+      "available": true,
+      "categories": [
+        "Traditional"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 10,
+      "name": "Chicken Handi",
+      "description": "Creamy chicken handi with ginger, tomatoes and house spices.",
+      "category": "Dinner",
+      "image": "🍲",
+      "imageUrl": "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Half Handi",
+          "price": 850
+        },
+        {
+          "name": "Full Handi",
+          "price": 1550
+        }
+      ],
+      "servingSize": "750 g",
+      "dietaryTags": [
+        "Halal",
+        "Mild"
+      ],
+      "rating": 4.8,
+      "ratingCount": 94,
+      "available": true,
+      "categories": [
+        "Dinner"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 11,
+      "name": "Chana Daal Thali",
+      "description": "Homestyle lentil daal served with rice, salad and a fresh roti.",
+      "category": "Traditional",
+      "image": "🍱",
+      "imageUrl": "https://d2gqo3h0psesgi.cloudfront.net/auto/foodine-restaurant-qgh7jn4k-food1.jpg",
+      "portions": [
+        {
+          "name": "Single Thali",
+          "price": 350
+        }
+      ],
+      "servingSize": "650 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.7,
+      "ratingCount": 62,
+      "available": true,
+      "categories": [
+        "Traditional"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 12,
+      "name": "Beef Seekh Roll",
+      "description": "Spiced seekh kebab wrapped with crisp salad and chutney.",
+      "category": "Fast Food",
+      "image": "🌯",
+      "imageUrl": "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "1 Roll",
+          "price": 260
+        },
+        {
+          "name": "2 Rolls",
+          "price": 490
+        }
+      ],
+      "servingSize": "1 roll · 240 g",
+      "dietaryTags": [
+        "Halal",
+        "Spicy"
+      ],
+      "rating": 4.6,
+      "ratingCount": 56,
+      "available": true,
+      "categories": [
+        "Fast Food"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 13,
+      "name": "Chicken Samosas",
+      "description": "Golden pastry parcels filled with savoury spiced chicken.",
+      "category": "Snacks",
+      "image": "🥟",
+      "imageUrl": "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "2 pieces",
+          "price": 180
+        },
+        {
+          "name": "6 pieces",
+          "price": 490
+        }
+      ],
+      "servingSize": "2 pieces · 120 g",
+      "dietaryTags": [
+        "Halal"
+      ],
+      "rating": 4.7,
+      "ratingCount": 48,
+      "available": true,
+      "categories": [
+        "Snacks"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 14,
+      "name": "Crispy Chicken Burger",
+      "description": "Crunchy chicken fillet, fresh lettuce and house sauce in a toasted bun.",
+      "category": "Fast Food",
+      "image": "🍔",
+      "imageUrl": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Single",
+          "price": 480
+        },
+        {
+          "name": "Meal with fries",
+          "price": 720
+        }
+      ],
+      "servingSize": "1 burger · 320 g",
+      "dietaryTags": [
+        "Halal"
+      ],
+      "rating": 4.7,
+      "ratingCount": 116,
+      "available": true,
+      "categories": [
+        "Fast Food"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 15,
+      "name": "Loaded Masala Fries",
+      "description": "Crisp fries with house masala, cheese sauce and fresh herbs.",
+      "category": "Fast Food",
+      "image": "🍟",
+      "imageUrl": "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 320
+        },
+        {
+          "name": "Large",
+          "price": 490
+        }
+      ],
+      "servingSize": "300 g",
+      "dietaryTags": [
+        "Vegetarian",
+        "Spicy"
+      ],
+      "rating": 4.5,
+      "ratingCount": 43,
+      "available": true,
+      "categories": [
+        "Fast Food"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 16,
+      "name": "Chicken Cheese Paratha Roll",
+      "description": "Juicy chicken, melted cheese and chutney folded in a flaky paratha.",
+      "category": "Fast Food",
+      "image": "🌯",
+      "imageUrl": "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "1 Roll",
+          "price": 390
+        }
+      ],
+      "servingSize": "1 roll · 300 g",
+      "dietaryTags": [
+        "Halal"
+      ],
+      "rating": 4.6,
+      "ratingCount": 64,
+      "available": true,
+      "categories": [
+        "Fast Food"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 17,
+      "name": "Fresh Tandoori Roti",
+      "description": "Soft whole-wheat roti baked fresh in a clay oven.",
+      "category": "Sides",
+      "image": "🫓",
+      "imageUrl": "https://images.deliveryhero.io/image/talabat/MenuItems/blob_637797636135825958",
+      "portions": [
+        {
+          "name": "1 piece",
+          "price": 35
+        },
+        {
+          "name": "5 pieces",
+          "price": 160
+        }
+      ],
+      "servingSize": "1 piece · 100 g",
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "rating": 4.8,
+      "ratingCount": 35,
+      "available": true,
+      "categories": [
+        "Sides"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 18,
+      "name": "Garlic Naan",
+      "description": "Soft tandoor naan brushed with butter and fresh garlic.",
+      "category": "Sides",
+      "image": "🫓",
+      "imageUrl": "https://img-global.cpcdn.com/recipes/8625621ef9c85f96/1200x630cq80/photo.jpg",
+      "portions": [
+        {
+          "name": "1 piece",
+          "price": 100
+        },
+        {
+          "name": "2 pieces",
+          "price": 190
+        }
+      ],
+      "servingSize": "1 piece · 150 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.8,
+      "ratingCount": 44,
+      "available": true,
+      "categories": [
+        "Sides"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 19,
+      "name": "Creamy Kheer",
+      "description": "Rice pudding gently simmered in milk with cardamom and pistachio.",
+      "category": "Desserts & Drinks",
+      "image": "🍮",
+      "imageUrl": "https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Cup",
+          "price": 180
+        },
+        {
+          "name": "Family Bowl",
+          "price": 480
+        }
+      ],
+      "servingSize": "250 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.9,
+      "ratingCount": 76,
+      "available": true,
+      "categories": [
+        "Desserts & Drinks"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 20,
+      "name": "Zarda",
+      "description": "Sweet saffron rice with nuts, raisins and a hint of cardamom.",
+      "category": "Desserts & Drinks",
+      "image": "🍚",
+      "imageUrl": "https://images.unsplash.com/photo-1516684732162-798a0062be99?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Cup",
+          "price": 180
+        },
+        {
+          "name": "Family Bowl",
+          "price": 520
+        }
+      ],
+      "servingSize": "300 g",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.7,
+      "ratingCount": 39,
+      "available": true,
+      "categories": [
+        "Desserts & Drinks"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 21,
+      "name": "Lab-e-Shirin",
+      "description": "Chilled vermicelli dessert with fruit, jelly and creamy milk.",
+      "category": "Desserts & Drinks",
+      "image": "🍨",
+      "imageUrl": "https://images.unsplash.com/photo-1488900128323-21503983a07e?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Glass",
+          "price": 260
+        }
+      ],
+      "servingSize": "350 ml",
+      "dietaryTags": [
+        "Vegetarian",
+        "Chilled"
+      ],
+      "rating": 4.8,
+      "ratingCount": 51,
+      "available": true,
+      "categories": [
+        "Desserts & Drinks"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 22,
+      "name": "Sweet Lassi",
+      "description": "Cool, creamy yoghurt drink blended fresh and served chilled.",
+      "category": "Desserts & Drinks",
+      "image": "🥛",
+      "imageUrl": "https://images.unsplash.com/photo-1553530666-ba11a7da3888?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 180
+        },
+        {
+          "name": "Large",
+          "price": 280
+        }
+      ],
+      "servingSize": "350 ml",
+      "dietaryTags": [
+        "Vegetarian",
+        "Chilled"
+      ],
+      "rating": 4.8,
+      "ratingCount": 66,
+      "available": true,
+      "categories": [
+        "Desserts & Drinks"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 23,
+      "name": "Mint Margarita",
+      "description": "A refreshing blend of mint, lemon and sparkling soda.",
+      "category": "Desserts & Drinks",
+      "image": "🍹",
+      "imageUrl": "https://images.unsplash.com/photo-1513558161293-cdaf765edfd7?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Regular",
+          "price": 240
+        },
+        {
+          "name": "Large",
+          "price": 360
+        }
+      ],
+      "servingSize": "400 ml",
+      "dietaryTags": [
+        "Vegan",
+        "Chilled"
+      ],
+      "rating": 4.7,
+      "ratingCount": 53,
+      "available": true,
+      "categories": [
+        "Desserts & Drinks"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 24,
+      "name": "Masala Chai",
+      "description": "Freshly brewed tea with milk and warming whole spices.",
+      "category": "Breakfast",
+      "image": "☕",
+      "imageUrl": "https://images.unsplash.com/photo-1571934811356-5cc061b6821f?auto=format&fit=crop&w=1200&q=85",
+      "portions": [
+        {
+          "name": "Cup",
+          "price": 100
+        },
+        {
+          "name": "Large Cup",
+          "price": 150
+        }
+      ],
+      "servingSize": "250 ml",
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "rating": 4.8,
+      "ratingCount": 119,
+      "available": true,
+      "categories": [
+        "Breakfast"
+      ],
+      "featured": false,
+      "soldOut": false
+    },
+    {
+      "id": 1008,
+      "name": "mumtaz",
+      "description": "",
+      "category": "Breakfast",
+      "categories": [
+        "Breakfast",
+        "Lunch"
+      ],
+      "image": "🍲",
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/34140436.jpg?width=1200",
+      "portions": [
+        {
+          "name": "regular",
+          "price": 150
+        }
+      ],
+      "dietaryTags": [],
+      "rating": 4.8,
+      "ratingCount": 1,
+      "available": true,
+      "soldOut": false,
+      "featured": true
+    }
+  ],
+  "deals": [
+    {
+      "id": 101,
+      "title": "Homestyle Lunch",
+      "description": "Chicken Biryani with a refreshing drink.",
+      "regularPrice": 400,
+      "discountedPrice": 350,
+      "imageUrl": "https://grsbmyvtzlpamtmdkxax.supabase.co/storage/v1/object/public/dish-images/1786168534750-wwykeqgn.webp",
+      "available": true
+    },
+    {
+      "id": 102,
+      "title": "Family Dinner",
+      "description": "A generous dinner combo for sharing together.",
+      "regularPrice": 700,
+      "discountedPrice": 600,
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/97537704.jpg?width=1200",
+      "available": true
+    },
+    {
+      "id": 103,
+      "title": "Breakfast Pair",
+      "description": "Fresh aloo paratha with a comforting chai.",
+      "regularPrice": 280,
+      "discountedPrice": 230,
+      "imageUrl": "https://images.deliveryhero.io/image/fd-pk/Products/34140436.jpg?width=1200",
+      "available": true
+    }
+  ],
+  "storeInfo": {
+    "name": "Home Made Food",
+    "city": "Bahawalpur",
+    "deliveryAreas": [
+      "Bahawalpur city",
+      "Model Town",
+      "University Chowk",
+      "Goheer Town",
+      "Baghdad-ul-Jadeed",
+      "Satellite Town",
+      "Cheema Town"
+    ],
+    "deliveryTimings": {
+      "estimatedMinutes": "25–35 minutes",
+      "slots": [
+        "As soon as possible",
+        "Today · 12:00–2:00 PM",
+        "Today · 2:00–5:00 PM",
+        "Today · 6:00–9:00 PM"
+      ]
+    },
+    "raast": {
+      "merchantName": "MUMTAZ ALI",
+      "ref": "9955",
+      "bank": "MCB Bank"
+    },
+    "contact": {
+      "whatsapp": "+923040537000",
+      "phone": "+923096648932"
+    }
+  },
+  "customers": [
+    {
+      "id": "cust_1793991543853_y84vq",
+      "name": "Ali Raza",
+      "email": "aliraza.bh@gmail.com",
+      "phone": "03001234567",
+      "avatarUrl": "",
+      "authProvider": "email",
+      "emailVerified": false,
+      "createdAt": "2026-11-06T18:59:03.853Z",
+      "lastLoginAt": "2026-11-06T18:59:03.853Z",
+      "addresses": [
+        "House 12, Street 4, Model Town"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "cust_1793990217020_4suwo",
+      "name": "div mumtaz",
+      "email": "divmumtaz@gmail.com",
+      "phone": "0-2384r94389",
+      "avatarUrl": "https://ui-avatars.com/api/?name=div%20mumtaz&background=173f2b&color=ffffff&size=150",
+      "authProvider": "email",
+      "emailVerified": true,
+      "createdAt": "2026-11-06T18:36:57.020Z",
+      "lastLoginAt": "2026-11-06T18:36:57.020Z",
+      "addresses": [],
+      "notes": ""
+    },
+    {
+      "id": "cust_1793987794009_fll0v",
+      "name": "engineermumtaz73",
+      "email": "engineermumtaz73@gmail.com",
+      "phone": "",
+      "avatarUrl": "https://ui-avatars.com/api/?name=engineermumtaz73&background=173f2b&color=ffffff&size=150",
+      "authProvider": "email",
+      "emailVerified": true,
+      "createdAt": "2026-11-06T17:56:34.009Z",
+      "lastLoginAt": "2026-11-06T17:56:34.009Z",
+      "addresses": [],
+      "notes": ""
+    },
+    {
+      "id": "cust_1793986772807_4dc4c",
+      "name": "Mumtaz Ali",
+      "email": "engineermumtaz773@gmail.com",
+      "phone": "+923040537000",
+      "avatarUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+      "authProvider": "email",
+      "emailVerified": true,
+      "createdAt": "2026-11-06T17:39:32.807Z",
+      "lastLoginAt": "2026-11-06T18:07:05.306Z",
+      "addresses": [],
+      "notes": ""
+    },
+    {
+      "id": "cust_1793986653795_r7t8g",
+      "name": "Mumtaz Ali",
+      "email": "test.mumtaz@gmail.com",
+      "phone": "+923040537000",
+      "avatarUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
+      "authProvider": "google",
+      "emailVerified": true,
+      "createdAt": "2026-11-06T17:37:33.795Z",
+      "lastLoginAt": "2026-11-06T17:37:33.795Z",
+      "addresses": [],
+      "notes": ""
+    },
+    {
+      "id": "cust_101",
+      "name": "Muhammad Arslan",
+      "email": "ch.arslan1282@gmail.com",
+      "phone": "",
+      "avatarUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "authProvider": "google",
+      "emailVerified": true,
+      "createdAt": "2026-11-01T14:22:00.000Z",
+      "lastLoginAt": "2026-11-06T18:17:02.489Z",
+      "addresses": [
+        "Model Town Block A, Bahawalpur"
+      ]
+    },
+    {
+      "id": "cust_102",
+      "name": "Ayesha Khan",
+      "email": "ayesha.khan92@gmail.com",
+      "phone": "",
+      "avatarUrl": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
+      "authProvider": "google",
+      "emailVerified": true,
+      "createdAt": "2026-11-03T10:15:00.000Z",
+      "lastLoginAt": "2026-11-06T17:57:44.278Z",
+      "addresses": [
+        "University Chowk, Bahawalpur"
+      ]
+    }
+  ],
+  "orders": [
+    {
+      "id": "hmf_1793991543844_7090",
+      "number": "#HMF-7090",
+      "customerName": "Ali Raza",
+      "customerEmail": "aliraza.bh@gmail.com",
+      "customerPhone": "03001234567",
+      "area": "Model Town",
+      "address": "House 12, Street 4",
+      "notes": "Less spicy biryani",
+      "paymentMethod": "Digital Payment (Raast)",
+      "items": [
+        {
+          "price": 450,
+          "quantity": 2,
+          "name": "Special Chicken Biryani",
+          "id": 1001,
+          "portion": "Single"
+        }
+      ],
+      "subtotal": 900,
+      "discount": 0,
+      "deliveryFee": 100,
+      "total": 1000,
+      "status": "out_for_delivery",
+      "createdAt": "2026-11-06T18:59:03.844Z",
+      "updatedAt": "2026-11-06T18:59:22.802Z",
+      "riderName": "Zubair Ahmad (Rider)",
+      "riderPhone": "03040537000",
+      "estimatedDelivery": "25–35 mins"
+    }
+  ]
+}
