@@ -3,14 +3,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hashPhoneOtp } from "@/lib/phone-otp";
 import { setCustomerSessionCookie } from "@/lib/customer-session";
+import { isSupabaseSchemaMismatch } from "@/lib/supabase-schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function failure(error: string, status: number) {
+  return NextResponse.json({ ok: false, error }, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
 function getClients() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   if (!url || !serviceKey || !anonKey) {
     throw new Error("Phone sign-in requires NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY.");
   }
@@ -22,11 +30,20 @@ function getClients() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { verificationId?: unknown; code?: unknown };
+    let requestBody: unknown;
+    try {
+      requestBody = await request.json();
+    } catch {
+      return failure("Send a valid JSON request.", 400);
+    }
+    if (!requestBody || typeof requestBody !== "object" || Array.isArray(requestBody)) {
+      return failure("Send a valid JSON request.", 400);
+    }
+    const body = requestBody as { verificationId?: unknown; code?: unknown };
     const verificationId = typeof body.verificationId === "string" ? body.verificationId : "";
     const code = typeof body.code === "string" ? body.code.trim() : "";
     if (!/^[0-9a-f-]{36}$/i.test(verificationId) || !/^\d{6}$/.test(code)) {
-      return NextResponse.json({ error: "A valid verification request and 6-digit code are required." }, { status: 400 });
+      return failure("A valid verification request and 6-digit code are required.", 400);
     }
 
     const { admin, publicClient } = getClients();
@@ -35,13 +52,13 @@ export async function POST(request: NextRequest) {
       .eq("id", verificationId)
       .maybeSingle();
     if (lookupError) throw lookupError;
-    if (!verification || verification.status !== "pending") return NextResponse.json({ error: "This verification code is no longer active." }, { status: 400 });
+    if (!verification || verification.status !== "pending") return failure("This verification code is no longer active.", 400);
     if (Date.parse(verification.expires_at) <= Date.now()) {
       const { error } = await admin.from("phone_verifications").update({ status: "expired" }).eq("id", verificationId);
       if (error) throw error;
-      return NextResponse.json({ error: "This verification code has expired. Request a new one." }, { status: 400 });
+      return failure("This verification code has expired. Request a new one.", 400);
     }
-    if (verification.attempts >= 5) return NextResponse.json({ error: "Too many incorrect attempts. Request a new code." }, { status: 429 });
+    if (verification.attempts >= 5) return failure("Too many incorrect attempts. Request a new code.", 429);
 
     const candidate = Buffer.from(hashPhoneOtp(code, verification.salt), "hex");
     const expected = Buffer.from(verification.otp_hash, "hex");
@@ -53,14 +70,14 @@ export async function POST(request: NextRequest) {
         ...(attempts >= 5 ? { status: "expired" } : {}),
       }).eq("id", verificationId).eq("status", "pending");
       if (error) throw error;
-      return NextResponse.json({ error: attempts >= 5 ? "Too many incorrect attempts. Request a new code." : "That code is incorrect." }, { status: attempts >= 5 ? 429 : 400 });
+      return failure(attempts >= 5 ? "Too many incorrect attempts. Request a new code." : "That code is incorrect.", attempts >= 5 ? 429 : 400);
     }
 
     const { data: claimed, error: claimError } = await admin.from("phone_verifications")
       .update({ status: "verified", attempts: verification.attempts + 1 })
       .eq("id", verificationId).eq("status", "pending").select("id").maybeSingle();
     if (claimError) throw claimError;
-    if (!claimed) return NextResponse.json({ error: "This verification code has already been used." }, { status: 409 });
+    if (!claimed) return failure("This verification code has already been used.", 409);
 
     const temporaryPassword = randomBytes(48).toString("base64url");
     const { data: profile, error: profileLookupError } = await admin.from("profiles")
@@ -107,7 +124,13 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
       last_login_at: new Date().toISOString(),
     }, { onConflict: "id" });
-    if (customerUpsertError) throw customerUpsertError;
+    if (customerUpsertError) {
+      if (isSupabaseSchemaMismatch(customerUpsertError)) {
+        console.error("[PHONE_OTP_CUSTOMER_SCHEMA_FALLBACK]", customerUpsertError);
+      } else {
+        throw customerUpsertError;
+      }
+    }
 
     const { data: authData, error: signInError } = await publicClient.auth.signInWithPassword({
       phone: verification.phone_e164,
@@ -143,6 +166,9 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error("[PHONE_OTP_VERIFY_ERROR]", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not verify the mobile number." }, { status: 500 });
+    if (isSupabaseSchemaMismatch(error)) {
+      return failure("Phone verification is temporarily unavailable because the database setup is incomplete. Please contact support.", 503);
+    }
+    return failure("Could not verify the mobile number. Please check the code or try again.", 500);
   }
 }

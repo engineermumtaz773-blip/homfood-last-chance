@@ -76,6 +76,7 @@ export type DbCustomer = {
   lastLoginAt?: string;
   addresses?: string[];
   notes?: string;
+  favoriteDishIds?: number[];
 };
 
 export type DbOrderItem = {

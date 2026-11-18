@@ -18,13 +18,16 @@ export function MobileBottomNav() {
   const cartCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   useEffect(() => {
-    setCustomer(readCustomerProfile());
+    const initialRead = window.requestAnimationFrame(() => setCustomer(readCustomerProfile()));
     const onAuth = (e: Event) => {
       const custom = e as CustomEvent<CustomerProfile | null>;
       setCustomer(custom.detail || null);
     };
     window.addEventListener(CUSTOMER_AUTH_EVENT, onAuth);
-    return () => window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuth);
+    return () => {
+      window.cancelAnimationFrame(initialRead);
+      window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuth);
+    };
   }, []);
 
   const openCart = () => {

@@ -14,6 +14,7 @@ import { AppInstallActions } from "@/components/app-install-actions";
 import { useSiteSettings, type Locale, type Theme } from "@/components/site-settings";
 import { acquireScrollLock } from "@/lib/scroll-lock";
 import { readCustomerProfile, CUSTOMER_AUTH_EVENT, type CustomerProfile } from "@/lib/customer";
+import { matchesDishSearch } from "@/lib/menu-search";
 
 const links = [["menu", "/menu"], ["deals", "/daily-deals"], ["track", "/track-order"]] as const;
 const brandImage = "/image_6c70d8.jpg";
@@ -57,7 +58,7 @@ export function SiteHeader() {
   }, []);
   const searchSuggestions = useMemo(() => {
     const value = query.trim().toLowerCase();
-    return value ? searchDishes.filter((dish) => `${dish.name} ${dish.category}`.toLowerCase().includes(value)).slice(0, 5) : [];
+    return value ? searchDishes.filter((dish) => matchesDishSearch(dish, value)).slice(0, 5) : [];
   }, [query, searchDishes]);
   function updateSound(enabled: boolean) {
     setSoundEnabled(enabled);

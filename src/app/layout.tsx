@@ -12,6 +12,7 @@ import { ScrollUnlockOnMount } from "@/components/scroll-unlock-on-mount";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { RealtimeSyncRuntime } from "@/components/realtime-sync-runtime";
 import { CustomerSessionRuntime } from "@/components/customer-session-runtime";
+import { FavoritesSyncRuntime } from "@/components/favorites-sync-runtime";
 
 export const metadata: Metadata = {
   title: "Home Made Food | Fresh Homemade Food",
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <PwaInstallBanner />
           <RealtimeSyncRuntime />
           <CustomerSessionRuntime />
+          <FavoritesSyncRuntime />
           <NavigationLoading />
           <StorefrontShell>{children}</StorefrontShell>
           <AmbientCursor />

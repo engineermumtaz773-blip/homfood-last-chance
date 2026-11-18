@@ -14,7 +14,8 @@ export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const mountedFrame = window.requestAnimationFrame(() => setMounted(true));
+    let savedModeFrame = 0;
 
     const media = window.matchMedia("(display-mode: standalone)");
     const checkStandalone = () => {
@@ -32,12 +33,14 @@ export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
 
     const saved = localStorage.getItem("hmf_view_mode") as "auto" | "web" | "app" | null;
     if (saved) {
-      setModeOverride(saved);
-      if (saved === "app") {
-        document.documentElement.setAttribute("data-pwa-standalone", "true");
-      } else if (saved === "web") {
-        document.documentElement.removeAttribute("data-pwa-standalone");
-      }
+      savedModeFrame = window.requestAnimationFrame(() => {
+        setModeOverride(saved);
+        if (saved === "app") {
+          document.documentElement.setAttribute("data-pwa-standalone", "true");
+        } else if (saved === "web") {
+          document.documentElement.removeAttribute("data-pwa-standalone");
+        }
+      });
     }
 
     const handler = (e: Event) => {
@@ -55,6 +58,8 @@ export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
 
     window.addEventListener(VIEW_MODE_CHANGE_EVENT, handler);
     return () => {
+      window.cancelAnimationFrame(mountedFrame);
+      if (savedModeFrame) window.cancelAnimationFrame(savedModeFrame);
       media.removeEventListener("change", checkStandalone);
       window.removeEventListener(VIEW_MODE_CHANGE_EVENT, handler);
     };

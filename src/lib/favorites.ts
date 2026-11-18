@@ -20,6 +20,17 @@ export function isDishFavorite(dishId: number): boolean {
   return ids.includes(dishId);
 }
 
+export function setFavoriteDishIds(ids: number[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const validIds = [...new Set(ids)].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 100);
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(validIds));
+    window.dispatchEvent(new CustomEvent(FAVORITES_CHANGE_EVENT, { detail: { totalFavorites: validIds.length } }));
+  } catch {
+    return;
+  }
+}
+
 export function toggleFavoriteDish(dishId: number): boolean {
   if (typeof window === "undefined") return false;
   try {

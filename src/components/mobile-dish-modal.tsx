@@ -31,17 +31,20 @@ export function MobileDishModal({ dish, isOpen, onClose }: MobileDishModalProps)
   // Reset local state when dish changes or modal opens
   useEffect(() => {
     if (isOpen) {
-      setPortionIndex(0);
-      setSelectedAddOns([]);
-      setQuantity(1);
-      setInstructions("");
-      setAddedSuccess(false);
+      const resetFrame = window.requestAnimationFrame(() => {
+        setPortionIndex(0);
+        setSelectedAddOns([]);
+        setQuantity(1);
+        setInstructions("");
+        setAddedSuccess(false);
+      });
       const releaseLock = acquireScrollLock();
       const onKeyDown = (e: KeyboardEvent) => {
         if (e.key === "Escape") onClose();
       };
       window.addEventListener("keydown", onKeyDown);
       return () => {
+        window.cancelAnimationFrame(resetFrame);
         releaseLock();
         window.removeEventListener("keydown", onKeyDown);
       };

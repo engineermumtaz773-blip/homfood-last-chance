@@ -27,6 +27,7 @@ export function CustomerAuthModal({
   initialMode = "signup",
   initialReason,
 }: CustomerAuthModalProps) {
+  const googleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === "true";
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [step, setStep] = useState<AuthStep>("method");
   const [name, setName] = useState("");
@@ -154,6 +155,10 @@ export function CustomerAuthModal({
 
   // Real Google OAuth Handler
   const handleGoogleSignIn = async () => {
+    if (!googleAuthEnabled) {
+      setError("Google sign-in is unavailable. Please use email verification or phone OTP.");
+      return;
+    }
     setGoogleBusy(true);
     setError("");
     try {
@@ -162,18 +167,20 @@ export function CustomerAuthModal({
       const returnPath = window.location.pathname + window.location.search;
       const redirectTo = new URL("/auth/callback", window.location.origin);
       redirectTo.searchParams.set("next", returnPath.startsWith("/") && !returnPath.startsWith("//") ? returnPath : "/");
-      const { error: authError } = await supabase.auth.signInWithOAuth({
+      const { data, error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: redirectTo.toString(),
           queryParams: { prompt: "select_account" },
+          skipBrowserRedirect: true,
         },
       });
       if (authError) throw authError;
+      if (!data.url) throw new Error("Google sign-in could not be started.");
+      window.location.assign(data.url);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to initiate Google Sign-In."
-      );
+      console.error("[GOOGLE_OAUTH_START_ERROR]", err);
+      setError("Google sign-in is unavailable right now. Please use email verification or phone OTP.");
       setGoogleBusy(false);
     }
   };
@@ -712,7 +719,7 @@ export function CustomerAuthModal({
                 )}
 
                 {/* Real Google OAuth Button (Redirects to official Google accounts.google.com) */}
-                {(mode === "login" || signupMethod === "email") && <motion.button
+                {googleAuthEnabled && (mode === "login" || signupMethod === "email") && <motion.button
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={busy || googleBusy}
@@ -781,7 +788,7 @@ export function CustomerAuthModal({
                 </motion.button>}
 
                 {/* Divider */}
-                {(mode === "login" || signupMethod === "email") && <div
+                {googleAuthEnabled && (mode === "login" || signupMethod === "email") && <div
                   style={{
                     display: "flex",
                     alignItems: "center",

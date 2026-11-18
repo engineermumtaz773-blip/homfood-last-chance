@@ -51,9 +51,12 @@ export function AdminAnalyticsManager() {
   }
 
   useEffect(() => {
-    void fetchAnalytics();
+    const initialFetch = window.setTimeout(() => void fetchAnalytics(), 0);
     const interval = window.setInterval(fetchAnalytics, 30000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialFetch);
+      window.clearInterval(interval);
+    };
   }, []);
 
   if (loading) {

@@ -40,7 +40,8 @@ export function AdminCustomersManager() {
   }, []);
 
   useEffect(() => {
-    fetchCustomers();
+    const initialFetch = window.setTimeout(() => void fetchCustomers(), 0);
+    return () => window.clearTimeout(initialFetch);
   }, [fetchCustomers]);
 
   const handleDelete = async (id: string) => {

@@ -22,7 +22,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState<boolean>(false);
 
   useEffect(() => {
-    setMounted(true);
+    const mountedFrame = window.requestAnimationFrame(() => setMounted(true));
 
     if (typeof window === "undefined") return;
 
@@ -43,14 +43,21 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     // Check for access denied toast param
     const params = new URLSearchParams(window.location.search);
     const error = params.get("error");
+    let accessDeniedFrame = 0;
     if (error === "access_denied" || error === "admin_required") {
-      setAccessDeniedToast("Access Denied: Admin privileges required");
+      accessDeniedFrame = window.requestAnimationFrame(() => {
+        setAccessDeniedToast("Access Denied: Admin privileges required");
+      });
       const url = new URL(window.location.href);
       url.searchParams.delete("error");
       window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
     }
 
-    return () => window.removeEventListener("resize", checkViewport);
+    return () => {
+      window.cancelAnimationFrame(mountedFrame);
+      if (accessDeniedFrame) window.cancelAnimationFrame(accessDeniedFrame);
+      window.removeEventListener("resize", checkViewport);
+    };
   }, [pathname, isMobileRoute]);
 
   useEffect(() => {

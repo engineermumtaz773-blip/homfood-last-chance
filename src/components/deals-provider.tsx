@@ -48,7 +48,9 @@ export function DealsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void fetchDeals().finally(() => setLoading(false));
+    const initialFetch = window.setTimeout(() => {
+      void fetchDeals().finally(() => setLoading(false));
+    }, 0);
     const interval = window.setInterval(fetchDeals, 12000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") void fetchDeals();
@@ -57,6 +59,7 @@ export function DealsProvider({ children }: { children: React.ReactNode }) {
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.clearInterval(interval);
+      window.clearTimeout(initialFetch);
       window.removeEventListener("focus", onVisibility);
       document.removeEventListener("visibilitychange", onVisibility);
     };

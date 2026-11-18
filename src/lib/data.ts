@@ -11,6 +11,9 @@ export type Dish = {
   portions: Portion[];
   servingSize?: string;
   dietaryTags?: string[];
+  allergens?: string[];
+  nutrition?: { calories?: number; proteinGrams?: number; carbsGrams?: number; fatGrams?: number };
+  spiceLevel?: "mild" | "medium" | "hot";
   rating?: number;
   ratingCount?: number;
   available?: boolean;
@@ -24,6 +27,15 @@ export async function getDishes(): Promise<Dish[]> {
   const { assertSupabaseConfigured, getSupabaseDishes } = await import("@/lib/supabase-server");
   assertSupabaseConfigured();
   return getSupabaseDishes();
+}
+
+export async function getDishesSafely(): Promise<Dish[] | null> {
+  try {
+    return await getDishes();
+  } catch (error) {
+    console.error("[MENU_DATA_UNAVAILABLE]", error);
+    return null;
+  }
 }
 
 export function dishesForCategoryOrAvailable(dishes: Dish[], category: string): Dish[] {

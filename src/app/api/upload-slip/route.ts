@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
     }
     const order = await getSupabaseOrder(number, phone);
     if (!order) return NextResponse.json({ error: "Order not found for that phone number." }, { status: 404 });
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
     if (!supabaseUrl || !serviceKey) throw new Error("Supabase Storage is not configured.");
     const extension = file.type === "image/jpeg" ? "jpg" : file.type.split("/")[1];
     const path = `${order.number.replace(/[^a-z0-9_-]/gi, "_")}/${crypto.randomUUID()}.${extension}`;
@@ -33,10 +33,9 @@ export async function POST(request: NextRequest) {
       const details = await uploadResponse.text();
       throw new Error(`Supabase Storage rejected the receipt (${uploadResponse.status}): ${details}`);
     }
-    const publicUrl = `${supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/public/payment-slips/${path}`;
     const updated = await updateSupabaseOrder(order.number, order.status, {
       paymentStatus: "verification_pending",
-      paymentSlipUrl: publicUrl,
+      paymentSlipUrl: path,
       paymentSlipName: file.name,
     });
     if (!updated) throw new Error("Receipt uploaded but the matching order could not be updated.");
@@ -47,7 +46,7 @@ export async function POST(request: NextRequest) {
       orderNumber: order.number,
       priority: "high",
     });
-    return NextResponse.json({ ok: true, order: updated, url: publicUrl });
+    return NextResponse.json({ ok: true, order: updated });
   } catch (error) {
     console.error("[UPLOAD_PAYMENT_SLIP_ERROR]", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not upload payment receipt." }, { status: 500 });

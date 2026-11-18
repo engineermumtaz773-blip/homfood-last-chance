@@ -31,6 +31,7 @@ export function CheckoutForm() {
   const [promoInput, setPromoInput] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState("");
+  const [promoDiscount, setPromoDiscount] = useState(0);
   const [submitError, setSubmitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<string[]>([]);
@@ -40,6 +41,8 @@ export function CheckoutForm() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
+  const [deliveryZones, setDeliveryZones] = useState<Array<{ id: string; zone_name: string; delivery_fee: number; min_order_amount: number; estimated_minutes: number }>>([]);
+  const [zoneError, setZoneError] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryArea, setDeliveryArea] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -50,9 +53,12 @@ export function CheckoutForm() {
   const [ibanCopied, setIbanCopied] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "verification_pending" | "paid" | "rejected">("pending");
   const [slipUploadMessage, setSlipUploadMessage] = useState("");
+  const selectedZone = deliveryZones.find((zone) => zone.zone_name === deliveryArea);
   const subtotal = items.reduce((total, item) => total + item.price * item.quantity, 0);
-  const discount = promoCode === "HOME10" ? Math.round(subtotal * 0.1) : 0;
-  const total = subtotal - discount;
+  const discount = Math.min(subtotal, promoDiscount);
+  const freeDeliveryThreshold = storeSettings?.delivery.freeDeliveryThreshold || 0;
+  const deliveryFee = selectedZone && (!freeDeliveryThreshold || subtotal < freeDeliveryThreshold) ? selectedZone.delivery_fee : 0;
+  const total = subtotal - discount + deliveryFee;
   const restaurantQr = useMemo(() => {
     const restaurant = storeSettings?.restaurant;
     const social = storeSettings?.social;
@@ -83,7 +89,9 @@ export function CheckoutForm() {
   }, [raastSession]);
 
   useEffect(() => {
-    if (raastSession) setPaymentModalOpen(true);
+    if (!raastSession) return;
+    const openPaymentFrame = window.requestAnimationFrame(() => setPaymentModalOpen(true));
+    return () => window.cancelAnimationFrame(openPaymentFrame);
   }, [raastSession]);
 
   useEffect(() => {
@@ -187,6 +195,21 @@ export function CheckoutForm() {
 
   useEffect(() => {
     let active = true;
+    const loadZones = async () => {
+      try {
+        const response = await fetch("/api/delivery-zones", { cache: "no-store" });
+        const data = await response.json() as { zones?: Array<{ id: string; zone_name: string; delivery_fee: number; min_order_amount: number; estimated_minutes: number }> };
+        if (!response.ok || !Array.isArray(data.zones)) throw new Error(`Delivery zones request failed (${response.status}).`);
+        if (active) {
+          setDeliveryZones(data.zones);
+          setZoneError("");
+        }
+      } catch (error) {
+        console.error("Could not load delivery zones.", error);
+        if (active) setZoneError(error instanceof Error ? error.message : "Delivery zones are unavailable.");
+      }
+    };
+    void loadZones();
     const loadSettings = async () => {
       try {
         const response = await fetch("/api/settings", { cache: "no-store" });
@@ -217,15 +240,30 @@ export function CheckoutForm() {
     setDeliveryAddress(area ? value.slice(0, -(area.length + 2)) : value);
   }
 
-  function applyPromo() {
+  async function applyPromo() {
     const code = promoInput.trim().toUpperCase();
-    if (code === "HOME10") {
-      setPromoCode(code);
-      setPromoMessage("HOME10 applied — 10% off your food subtotal.");
+    if (!code) {
+      setPromoCode("");
+      setPromoDiscount(0);
+      setPromoMessage("Enter a promo code first.");
       return;
     }
-    setPromoCode("");
-    setPromoMessage(code ? "That promo code isn’t available. Try HOME10." : "Enter a promo code first.");
+    try {
+      const response = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, subtotal }),
+      });
+      const data = await response.json() as { code?: string; discount?: number; message?: string; error?: string };
+      if (!response.ok || typeof data.discount !== "number" || !data.code) throw new Error(data.error || "That promo code is unavailable.");
+      setPromoCode(data.code);
+      setPromoDiscount(data.discount);
+      setPromoMessage(data.message || "Coupon applied.");
+    } catch (error) {
+      setPromoCode("");
+      setPromoDiscount(0);
+      setPromoMessage(error instanceof Error ? error.message : "Could not validate this promo code.");
+    }
   }
 
   async function placeOrder(event: FormEvent<HTMLFormElement>) {
@@ -240,6 +278,16 @@ export function CheckoutForm() {
     const area = String(formData.get("area") ?? "").trim();
     const address = String(formData.get("address") ?? "").trim();
     const deliveryTime = String(formData.get("deliveryTime") ?? "As soon as possible").trim();
+    if (selectedZone && subtotal < selectedZone.min_order_amount) {
+      setSubmitError(`This delivery area requires a minimum order of Rs. ${selectedZone.min_order_amount.toLocaleString()}.`);
+      setIsSubmitting(false);
+      return;
+    }
+    if (zoneError && !deliveryZones.length) {
+      setSubmitError("Delivery areas could not be loaded. Please try again before placing your order.");
+      setIsSubmitting(false);
+      return;
+    }
     const notes = [String(formData.get("notes") ?? "").trim(), `Requested delivery: ${deliveryTime}`].filter(Boolean).join("\n");
     const orderLines = items.map((item) => `- ${item.name} (${item.portion}) x${item.quantity}: Rs. ${item.price * item.quantity}${item.specialInstructions ? `\n  Kitchen note: ${item.specialInstructions}` : ""}`).join("\n");
     let orderNumber: string;
@@ -258,7 +306,7 @@ export function CheckoutForm() {
         promo_code: promoCode,
         subtotal,
         discount,
-        deliveryFee: 0,
+        deliveryFee,
         total,
         items: items.map((item) => ({
           id: item.id,
@@ -350,7 +398,7 @@ export function CheckoutForm() {
           <label className="field">{t("phoneNumber")}<input name="phone" required autoComplete="tel" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="03xx xxxxxxx" /></label>
           <label className="field full">Email (optional)<input name="email" type="email" autoComplete="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="name@example.com" /></label>
           {savedAddresses.length > 0 && <label className="field full">Use a saved address<select value={selectedSavedAddress} onChange={(event) => selectSavedAddress(event.target.value)}><option value="">Enter a new address</option>{savedAddresses.map((saved) => <option key={saved} value={saved}>{saved}</option>)}</select></label>}
-          <label className="field full">{t("deliveryArea")}<select name="area" required value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)}><option value="" disabled>{t("chooseArea")}</option><option>Bahawalpur city</option><option>Model Town</option><option>University Chowk</option><option>Other Bahawalpur area</option></select></label>
+          <label className="field full">{t("deliveryArea")}<select name="area" required value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)}><option value="" disabled>{t("chooseArea")}</option>{deliveryZones.length ? deliveryZones.map((zone) => <option key={zone.id} value={zone.zone_name}>{zone.zone_name} · Rs. {zone.delivery_fee}</option>) : (storeSettings?.delivery.deliveryAreas || ["Bahawalpur city", "Model Town", "University Chowk", "Other Bahawalpur area"]).map((area) => <option key={area}>{area}</option>)}</select>{selectedZone && <small>Estimated delivery: {selectedZone.estimated_minutes} min{selectedZone.min_order_amount ? ` · Minimum Rs. ${selectedZone.min_order_amount}` : ""}</small>}{zoneError && <small role="alert">Live zone pricing is unavailable. Please retry shortly.</small>}</label>
           <label className="field full">{t("fullAddress")}<textarea name="address" required autoComplete="street-address" value={deliveryAddress} onChange={(event) => { setDeliveryAddress(event.target.value); setSelectedSavedAddress(""); }} placeholder={t("fullAddress")} /></label>
           <label className="field full">Delivery timing<select name="deliveryTime" defaultValue="As soon as possible"><option>As soon as possible</option><option>Today · 12:00–2:00 PM</option><option>Today · 2:00–5:00 PM</option><option>Today · 6:00–9:00 PM</option></select></label>
         </div>
@@ -388,7 +436,7 @@ export function CheckoutForm() {
         <div className="summary-line"><span>{t("subtotal")}</span><strong>Rs. {subtotal}</strong></div>
         <div className="promo-entry"><label htmlFor="promo-code">{t("promoCode")}</label><div><input id="promo-code" value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder={t("enterCode")} /><button type="button" onClick={applyPromo}>{t("apply")}</button></div>{promoMessage && <small className={promoCode ? "promo-success" : "promo-error"} role="status">{promoMessage}</small>}</div>
         {discount > 0 && <div className="summary-line"><span>Discount ({promoCode})</span><strong>− Rs. {discount}</strong></div>}
-        <div className="summary-line"><span>Delivery</span><strong>FREE</strong></div>
+        <div className="summary-line"><span>Delivery</span><strong>{deliveryFee ? `Rs. ${money.format(deliveryFee)}` : "FREE"}</strong></div>
         <div className="summary-line summary-total"><span>Total</span><strong>{raastSession ? `PKR ${money.format(raastSession.amount)}` : `Rs. ${total}`}</strong></div>
       </aside>
       {raastSession && <section className="raast-print-challan" aria-label="Printable three QR payment challan">

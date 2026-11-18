@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
 import { saveCustomerProfile, type CustomerProfile } from "@/lib/customer";
 
@@ -69,7 +70,7 @@ function CallbackStatus() {
       <section role="status" style={{ width: "min(100%, 460px)", padding: "clamp(22px, 5vw, 38px)", borderRadius: 24, background: "var(--surface, #fff)", textAlign: "center", boxShadow: "0 18px 50px #173f2b18" }}>
         <h1 style={{ marginTop: 0, color: "var(--ink, #173f2b)" }}>{error ? "Sign-in needs attention" : "Welcome to Home Made Food"}</h1>
         <p>{message}</p>
-        {error && <a href="/" style={{ display: "inline-flex", minHeight: 44, alignItems: "center", padding: "0 18px", borderRadius: 10, background: "var(--accent-strong, #173f2b)", color: "#fff" }}>Return to the storefront</a>}
+        {error && <Link href="/" style={{ display: "inline-flex", minHeight: 44, alignItems: "center", padding: "0 18px", borderRadius: 10, background: "var(--accent-strong, #173f2b)", color: "#fff" }}>Return to the storefront</Link>}
       </section>
     </main>
   );

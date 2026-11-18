@@ -38,8 +38,10 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
   const cartCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   useEffect(() => {
-    setCustomer(readCustomerProfile());
-    setOnline(isAppOnline());
+    const initialRead = window.requestAnimationFrame(() => {
+      setCustomer(readCustomerProfile());
+      setOnline(isAppOnline());
+    });
 
     const onAuth = (e: Event) => {
       const ce = e as CustomEvent<CustomerProfile | null>;
@@ -55,6 +57,7 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("offline", onNetwork);
 
     return () => {
+      window.cancelAnimationFrame(initialRead);
       window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuth);
       window.removeEventListener(NETWORK_STATUS_EVENT, onNetwork);
       window.removeEventListener("online", onNetwork);
@@ -64,8 +67,11 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
 
   // Close drawer and notification popover on route change
   useEffect(() => {
-    setDrawerOpen(false);
-    setNotificationsOpen(false);
+    const closePopoverFrame = window.requestAnimationFrame(() => {
+      setDrawerOpen(false);
+      setNotificationsOpen(false);
+    });
+    return () => window.cancelAnimationFrame(closePopoverFrame);
   }, [pathname]);
 
   // Pull to refresh handlers

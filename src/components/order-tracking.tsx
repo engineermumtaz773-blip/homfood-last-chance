@@ -207,8 +207,9 @@ export function OrderTracking() {
   }, [lookupTarget]);
 
   useEffect(() => {
-    setCustomerNoteDraft(liveOrder?.customerNote || "");
-  }, [liveOrder?.number]);
+    const resetFrame = window.requestAnimationFrame(() => setCustomerNoteDraft(liveOrder?.customerNote || ""));
+    return () => window.cancelAnimationFrame(resetFrame);
+  }, [liveOrder?.number, liveOrder?.customerNote]);
 
   async function saveCustomerNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

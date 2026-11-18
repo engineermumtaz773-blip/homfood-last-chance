@@ -107,7 +107,7 @@ export function AdminOrderDetail({ number }: { number: string }) {
           <label className="field">Admin note<textarea value={adminNotes} onChange={(event) => setAdminNotes(event.target.value)} maxLength={1000} placeholder="Kitchen or delivery instruction for the customer" /></label>
           <label className="field">Instruction video/media URL<input value={adminMediaUrl} onChange={(event) => setAdminMediaUrl(event.target.value)} type="url" placeholder="https://..." /></label>
           <button type="button" className="add-button" onClick={() => void saveOrderInstructions()}>Save customer instructions</button>
-          {order.paymentSlipUrl && <a href={order.paymentSlipUrl} target="_blank" rel="noreferrer">View Uploaded File ({order.paymentSlipName || "payment slip"})</a>}
+          {order.paymentSlipUrl && <a href={`/api/orders/proof?number=${encodeURIComponent(order.number)}`} target="_blank" rel="noreferrer">View Uploaded File ({order.paymentSlipName || "payment slip"})</a>}
         </section>
         <section className="admin-detail-panel admin-detail-chat">
           <div className="tracking-map-heading"><div><span className="store-eyebrow">CUSTOMER SUPPORT</span><strong>Order chat</strong></div><span className="chat-secure-badge">#{messages.length}</span></div>

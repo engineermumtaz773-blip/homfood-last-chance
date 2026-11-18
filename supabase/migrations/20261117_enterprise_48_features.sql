@@ -1,573 +1,860 @@
--- Enterprise 48-feature upgrade for Home Made Food
--- Idempotent Supabase migration for core commerce, operational and support workflows.
+-- Enterprise feature schema additions for the existing Home Made Food schema.
+-- Apply after 20261113_ultimate_master_fix.sql and 20261113_phone_verification.sql.
+-- The existing public.orders.number, public.orders.total, public.menu_items.id,
+-- and store_settings(id = 'singleton', data) contracts are intentionally retained.
 
-create extension if not exists pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-create sequence if not exists public.orders_order_number_seq start with 1 increment by 1;
-
-create or replace function public.set_updated_at()
-returns trigger
-language plpgsql
-security definer
-set search_path = public, auth
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
+-- Keep the existing timestamp/audit conventions compatible.
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
 $$;
 
-alter table public.orders add column if not exists order_number text;
-alter table public.orders add column if not exists deleted_at timestamptz;
-alter table public.orders add column if not exists created_by uuid references auth.users(id) on delete set null;
-alter table public.orders add column if not exists updated_by uuid references auth.users(id) on delete set null;
-
-alter table public.menu_items add column if not exists deleted_at timestamptz;
-alter table public.menu_items add column if not exists created_by uuid references auth.users(id) on delete set null;
-alter table public.menu_items add column if not exists updated_by uuid references auth.users(id) on delete set null;
-alter table public.menu_items add column if not exists daily_stock_limit integer;
-alter table public.menu_items add column if not exists remaining_stock integer;
-alter table public.menu_items add column if not exists calories integer;
-alter table public.menu_items add column if not exists protein_g numeric;
-alter table public.menu_items add column if not exists carbs_g numeric;
-alter table public.menu_items add column if not exists fat_g numeric;
-alter table public.menu_items add column if not exists allergens text[] not null default '{}';
-alter table public.menu_items add column if not exists addons_json jsonb not null default '{}'::jsonb;
-
-alter table public.profiles add column if not exists deleted_at timestamptz;
-alter table public.profiles add column if not exists created_by uuid references auth.users(id) on delete set null;
-alter table public.profiles add column if not exists updated_by uuid references auth.users(id) on delete set null;
-alter table public.profiles add column if not exists customer_tags text[] not null default '{}';
-alter table public.profiles add column if not exists loyalty_points integer not null default 0;
-alter table public.profiles add column if not exists referral_code text;
-
-alter table public.coupons add column if not exists deleted_at timestamptz;
-alter table public.coupons add column if not exists created_by uuid references auth.users(id) on delete set null;
-alter table public.coupons add column if not exists updated_by uuid references auth.users(id) on delete set null;
-
-alter table public.delivery_zones add column if not exists deleted_at timestamptz;
-alter table public.delivery_zones add column if not exists created_by uuid references auth.users(id) on delete set null;
-alter table public.delivery_zones add column if not exists updated_by uuid references auth.users(id) on delete set null;
-
-create or replace function public.generate_order_number()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if new.order_number is null or trim(new.order_number) = '' then
-    new.order_number := format('HMF-%s-%05s', to_char(current_date, 'YYYY'), nextval('public.orders_order_number_seq'));
-  end if;
-
-  if new.number is null or trim(new.number) = '' then
-    new.number := new.order_number;
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_orders_generate_order_number on public.orders;
-create trigger trg_orders_generate_order_number
-before insert or update of order_number, number
-on public.orders
-for each row
-execute function public.generate_order_number();
-
-update public.orders
-set order_number = coalesce(order_number, format('HMF-%s-%05s', to_char(created_at, 'YYYY'), row_number() over (order by created_at, id)))
-where order_number is null
-and created_at is not null;
-
-update public.orders
-set number = coalesce(number, order_number)
-where number is null;
-
-create unique index if not exists idx_orders_order_number_unique on public.orders (order_number) where order_number is not null;
-
-create or replace function public.apply_order_stock_updates()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  item jsonb;
-  dish_id bigint;
-  qty integer;
-  current_stock integer;
-  next_stock integer;
-begin
-  if tg_op = 'insert' and new.status in ('confirmed', 'paid', 'preparing', 'out_for_delivery', 'delivered')
-     or tg_op = 'update' and old.status is distinct from new.status and new.status in ('confirmed', 'paid', 'preparing', 'out_for_delivery', 'delivered') then
-
-    for item in select jsonb_array_elements(coalesce(new.items, '[]'::jsonb))
-    loop
-      dish_id := nullif(item->>'dish_id', '')::bigint;
-      qty := coalesce((item->>'quantity')::integer, 1);
-
-      if dish_id is not null and qty > 0 then
-        select coalesce(remaining_stock, 0)
-          into current_stock
-          from public.menu_items
-          where id = dish_id
-          for update;
-
-        if current_stock is not null then
-          next_stock := greatest(current_stock - qty, 0);
-          update public.menu_items
-          set remaining_stock = next_stock,
-              sold_out = (next_stock <= 0),
-              updated_at = now()
-          where id = dish_id;
-        end if;
-      end if;
-    end loop;
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_orders_apply_stock_updates on public.orders;
-create trigger trg_orders_apply_stock_updates
-after insert or update of status
-on public.orders
-for each row
-when (new.status in ('confirmed', 'paid', 'preparing', 'out_for_delivery', 'delivered'))
-execute function public.apply_order_stock_updates();
-
-create table if not exists public.delivery_zones (
-  id uuid primary key default gen_random_uuid(),
-  zone_name text not null unique,
-  delivery_fee numeric not null default 0,
-  min_order_amount numeric not null default 0,
-  estimated_minutes integer not null default 30,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  deleted_at timestamptz,
-  created_by uuid references auth.users(id) on delete set null,
-  updated_by uuid references auth.users(id) on delete set null
+-- Existing customers are text-keyed because email and phone sign-ins share this table.
+CREATE TABLE IF NOT EXISTS public.customers (
+  id TEXT PRIMARY KEY,
+  auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL DEFAULT 'Customer',
+  email TEXT UNIQUE,
+  phone TEXT NOT NULL DEFAULT '',
+  avatar_url TEXT NOT NULL DEFAULT '',
+  auth_provider TEXT NOT NULL DEFAULT 'email',
+  email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  addresses JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-insert into public.delivery_zones (zone_name, delivery_fee, min_order_amount, estimated_minutes, is_active)
-values
-  ('University Chowk', 120, 799, 25, true),
-  ('Satellite Town', 150, 999, 35, true),
-  ('Baghdad-ul-Jadeed Campus', 180, 1199, 40, true),
-  ('Model Town', 170, 1099, 32, true),
-  ('Dubai Chowk', 140, 899, 30, true),
-  ('One Unit Chowk', 160, 999, 28, true)
-on conflict (zone_name) do nothing;
+ALTER TABLE public.customers
+  ADD COLUMN IF NOT EXISTS auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT 'Customer',
+  ADD COLUMN IF NOT EXISTS email TEXT,
+  ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'email',
+  ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS addresses JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS favorite_dish_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[],
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
-create table if not exists public.coupons (
-  id uuid primary key default gen_random_uuid(),
-  code text not null unique check (code = upper(code)),
-  discount_type text not null check (discount_type in ('percentage', 'fixed')),
-  discount_value numeric not null default 0,
-  min_order_value numeric not null default 0,
-  max_uses integer,
-  used_count integer not null default 0,
-  expires_at timestamptz,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  deleted_at timestamptz,
-  created_by uuid references auth.users(id) on delete set null,
-  updated_by uuid references auth.users(id) on delete set null
-);
+ALTER TABLE public.customers ALTER COLUMN email DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS customers_auth_user_id_idx ON public.customers (auth_user_id);
+CREATE INDEX IF NOT EXISTS customers_phone_idx ON public.customers (phone);
 
-create table if not exists public.reviews (
-  id uuid primary key default gen_random_uuid(),
-  order_id text references public.orders(id) on delete cascade,
-  user_id uuid references auth.users(id) on delete cascade,
-  menu_item_id bigint,
-  rating smallint not null check (rating between 1 and 5),
-  comment text,
-  is_approved boolean not null default false,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists public.meal_subscriptions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade,
-  plan_type text not null check (plan_type in ('weekly', 'monthly')),
-  days_of_week text[] not null default '{}'::text[],
-  meal_slot text not null check (meal_slot in ('lunch', 'dinner')),
-  status text not null default 'active',
-  start_date date not null default current_date,
-  end_date date,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.reservations (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade,
-  guest_name text not null,
-  phone text not null,
-  party_size integer not null default 1,
-  slot_time timestamptz not null,
-  notes text,
-  status text not null default 'pending',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.riders (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  phone text not null,
-  vehicle_number text,
-  is_available boolean not null default true,
-  active_orders_count integer not null default 0,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-alter table public.orders add column if not exists user_id uuid references auth.users(id) on delete set null;
-alter table public.orders add column if not exists rider_id uuid references public.riders(id) on delete set null;
-alter table public.orders add column if not exists delivery_zone_id uuid references public.delivery_zones(id) on delete set null;
-alter table public.orders add column if not exists coupon_code text;
-alter table public.orders add column if not exists discount_amount numeric not null default 0;
-alter table public.orders add column if not exists points_redeemed integer not null default 0;
-alter table public.orders add column if not exists estimated_delivery_at timestamptz;
-alter table public.orders add column if not exists scheduled_for timestamptz;
-
-create table if not exists public.support_messages (
-  id uuid primary key default gen_random_uuid(),
-  session_id text not null,
-  user_id uuid references auth.users(id) on delete cascade,
-  sender_role text not null check (sender_role in ('customer', 'admin')),
-  message text not null,
-  is_read boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.admin_audit_logs (
-  id uuid primary key default gen_random_uuid(),
-  admin_id uuid references auth.users(id) on delete set null,
-  action text not null,
-  entity_type text not null,
-  entity_id text,
-  details_json jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.api_rate_limits (
-  key text primary key,
-  hits integer not null default 1,
-  window_start timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.webhook_logs (
-  id uuid primary key default gen_random_uuid(),
-  provider text not null,
-  event_type text not null,
-  payload jsonb not null default '{}'::jsonb,
-  status_code integer,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create or replace function public.monthly_revenue_summary()
-returns table (
-  month_key date,
-  total_revenue numeric,
-  order_count bigint,
-  avg_order_value numeric
+INSERT INTO public.customers (id, auth_user_id, name, email, phone, avatar_url, auth_provider, email_verified, created_at, updated_at)
+SELECT
+  profiles.id::TEXT,
+  profiles.id,
+  COALESCE(NULLIF(profiles.full_name, ''), 'Customer'),
+  profiles.email,
+  COALESCE(profiles.phone, ''),
+  COALESCE(profiles.avatar_url, ''),
+  'email',
+  FALSE,
+  profiles.created_at,
+  COALESCE(profiles.updated_at, NOW())
+FROM public.profiles AS profiles
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM public.customers AS customers
+  WHERE customers.id = profiles.id::TEXT
+     OR (profiles.email IS NOT NULL AND LOWER(customers.email) = LOWER(profiles.email))
 )
-language sql
-stable
-as $$
-  select
-    date_trunc('month', created_at)::date as month_key,
-    coalesce(round(sum(total), 2), 0) as total_revenue,
-    count(*)::bigint as order_count,
-    coalesce(round(avg(total), 2), 0) as avg_order_value
-  from public.orders
-  where deleted_at is null
-  group by date_trunc('month', created_at)::date
-  order by month_key desc;
+ON CONFLICT (id) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.sync_homefood_customer_from_profile()
+RETURNS TRIGGER
+LANGUAGE PLPGSQL
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.customers
+    WHERE customers.email IS NOT NULL
+      AND LOWER(customers.email) = LOWER(COALESCE(NEW.email, ''))
+      AND customers.id <> NEW.id::TEXT
+  ) THEN
+    INSERT INTO public.customers (id, auth_user_id, name, email, phone, avatar_url, auth_provider)
+    VALUES (
+      NEW.id::TEXT,
+      NEW.id,
+      COALESCE(NULLIF(NEW.full_name, ''), 'Customer'),
+      NEW.email,
+      COALESCE(NEW.phone, ''),
+      COALESCE(NEW.avatar_url, ''),
+      'email'
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      auth_user_id = EXCLUDED.auth_user_id,
+      name = EXCLUDED.name,
+      email = EXCLUDED.email,
+      phone = EXCLUDED.phone,
+      avatar_url = EXCLUDED.avatar_url,
+      updated_at = NOW();
+  END IF;
+  RETURN NEW;
+END;
 $$;
 
-create or replace function public.is_service_role_or_admin()
-returns boolean
-language sql
-stable
-as $$
-  select
-    current_setting('request.jwt.claims', true)::jsonb ->> 'role' = 'service_role'
-    or exists (
-      select 1
-      from public.profiles p
-      where p.id = auth.uid()
-        and coalesce(p.metadata->>'is_admin', p.metadata->>'admin', 'false') = 'true'
-    );
+DROP TRIGGER IF EXISTS on_homefood_profile_customer_sync ON public.profiles;
+CREATE TRIGGER on_homefood_profile_customer_sync
+  AFTER INSERT OR UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.sync_homefood_customer_from_profile();
+
+-- Profile extensions support CRM and loyalty without changing existing identity fields.
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS customer_tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS loyalty_points INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS favorite_dish_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[],
+  ADD COLUMN IF NOT EXISTS referral_code TEXT,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_referral_code_unique_idx
+  ON public.profiles (referral_code) WHERE referral_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS profiles_phone_idx ON public.profiles (phone);
+
+-- Inventory and nutrition fields extend the existing bigint-keyed menu_items table.
+ALTER TABLE public.menu_items
+  ADD COLUMN IF NOT EXISTS daily_stock_limit INTEGER,
+  ADD COLUMN IF NOT EXISTS remaining_stock INTEGER,
+  ADD COLUMN IF NOT EXISTS calories INTEGER,
+  ADD COLUMN IF NOT EXISTS protein_g NUMERIC,
+  ADD COLUMN IF NOT EXISTS carbs_g NUMERIC,
+  ADD COLUMN IF NOT EXISTS fat_g NUMERIC,
+  ADD COLUMN IF NOT EXISTS allergens TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS addons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.menu_items'::regclass
+      AND conname = 'menu_items_daily_stock_limit_nonnegative'
+  ) THEN
+    ALTER TABLE public.menu_items
+      ADD CONSTRAINT menu_items_daily_stock_limit_nonnegative
+      CHECK (daily_stock_limit IS NULL OR daily_stock_limit >= 0);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.menu_items'::regclass
+      AND conname = 'menu_items_remaining_stock_nonnegative'
+  ) THEN
+    ALTER TABLE public.menu_items
+      ADD CONSTRAINT menu_items_remaining_stock_nonnegative
+      CHECK (remaining_stock IS NULL OR remaining_stock >= 0);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.menu_items'::regclass
+      AND conname = 'menu_items_calories_nonnegative'
+  ) THEN
+    ALTER TABLE public.menu_items
+      ADD CONSTRAINT menu_items_calories_nonnegative
+      CHECK (calories IS NULL OR calories >= 0);
+  END IF;
+END;
 $$;
 
-create or replace function public.is_user_session_owner(user_id uuid)
-returns boolean
-language sql
-stable
-as $$
-  select auth.uid() = user_id;
-$$;
-
-create index if not exists idx_orders_created_at on public.orders (created_at desc);
-create index if not exists idx_orders_user_id on public.orders (user_id);
-create index if not exists idx_orders_status on public.orders (status);
-create index if not exists idx_orders_order_number on public.orders (order_number);
-create index if not exists idx_profiles_phone on public.profiles (phone);
-create unique index if not exists idx_profiles_referral_code_unique on public.profiles (referral_code) where referral_code is not null;
-create unique index if not exists idx_coupons_code_upper_unique on public.coupons ((upper(code)));
-create index if not exists idx_menu_items_remaining_stock on public.menu_items (remaining_stock);
-create index if not exists idx_reviews_order_id on public.reviews (order_id);
-create index if not exists idx_support_messages_user_id on public.support_messages (user_id, created_at desc);
-create index if not exists idx_support_messages_session_id on public.support_messages (session_id, created_at desc);
-create index if not exists idx_admin_audit_logs_entity on public.admin_audit_logs (entity_type, entity_id, created_at desc);
-create index if not exists idx_webhook_logs_provider on public.webhook_logs (provider, created_at desc);
-
-alter table public.profiles enable row level security;
-alter table public.menu_items enable row level security;
-alter table public.orders enable row level security;
-alter table public.coupons enable row level security;
-alter table public.delivery_zones enable row level security;
-alter table public.reviews enable row level security;
-alter table public.meal_subscriptions enable row level security;
-alter table public.reservations enable row level security;
-alter table public.support_messages enable row level security;
-alter table public.admin_audit_logs enable row level security;
-alter table public.api_rate_limits enable row level security;
-alter table public.webhook_logs enable row level security;
-alter table public.riders enable row level security;
-
-create policy if not exists "Profiles can view own records"
-on public.profiles
-for select to authenticated
-using (auth.uid() = id or public.is_service_role_or_admin());
-
-create policy if not exists "Profiles can update own records"
-on public.profiles
-for update to authenticated
-using (auth.uid() = id or public.is_service_role_or_admin())
-with check (auth.uid() = id or public.is_service_role_or_admin());
-
-create policy if not exists "Profiles can insert own records"
-on public.profiles
-for insert to authenticated
-with check (auth.uid() = id or public.is_service_role_or_admin());
-
-create policy if not exists "Menu items are readable by all authenticated users"
-on public.menu_items
-for select to authenticated, anon
-using (true);
-
-create policy if not exists "Service role/admin manage menu items"
-on public.menu_items
-for all to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Users view own orders"
-on public.orders
-for select to authenticated
-using (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users manage own orders"
-on public.orders
-for insert to authenticated
-with check (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users update own orders"
-on public.orders
-for update to authenticated
-using (auth.uid() = user_id or public.is_service_role_or_admin())
-with check (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Delivery zones are readable by all authenticated users"
-on public.delivery_zones
-for select to authenticated, anon
-using (is_active = true or public.is_service_role_or_admin());
-
-create policy if not exists "Admin can manage delivery zones"
-on public.delivery_zones
-for all to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Users view own coupons"
-on public.coupons
-for select to authenticated
-using (true or public.is_service_role_or_admin());
-
-create policy if not exists "Admins manage coupons"
-on public.coupons
-for all to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Users view own reviews"
-on public.reviews
-for select to authenticated
-using (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users can write reviews"
-on public.reviews
-for insert to authenticated
-with check (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users manage own subscriptions"
-on public.meal_subscriptions
-for all to authenticated
-using (auth.uid() = user_id or public.is_service_role_or_admin())
-with check (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users manage own reservations"
-on public.reservations
-for all to authenticated
-using (auth.uid() = user_id or public.is_service_role_or_admin())
-with check (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users view own support messages"
-on public.support_messages
-for select to authenticated
-using (auth.uid() = user_id or public.is_service_role_or_admin());
-
-create policy if not exists "Users can insert support messages"
-on public.support_messages
-for insert to authenticated
-with check ((auth.uid() = user_id and sender_role = 'customer') or public.is_service_role_or_admin());
-
-create policy if not exists "Admins update support messages"
-on public.support_messages
-for update to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Admins view audit logs"
-on public.admin_audit_logs
-for select to authenticated
-using (public.is_service_role_or_admin());
-
-create policy if not exists "Admins write audit logs"
-on public.admin_audit_logs
-for insert to authenticated
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Only admin can read rate limits"
-on public.api_rate_limits
-for all to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Admins manage webhook logs"
-on public.webhook_logs
-for all to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Admins manage riders"
-on public.riders
-for all to authenticated
-using (public.is_service_role_or_admin())
-with check (public.is_service_role_or_admin());
-
-create policy if not exists "Users view riders when available"
-on public.riders
-for select to authenticated, anon
-using (is_available = true or public.is_service_role_or_admin());
-
-create or replace trigger set_public_orders_updated_at
-before update on public.orders
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_menu_items_updated_at
-before update on public.menu_items
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_profiles_updated_at
-before update on public.profiles
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_coupons_updated_at
-before update on public.coupons
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_delivery_zones_updated_at
-before update on public.delivery_zones
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_meal_subscriptions_updated_at
-before update on public.meal_subscriptions
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_reservations_updated_at
-before update on public.reservations
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_riders_updated_at
-before update on public.riders
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_support_messages_updated_at
-before update on public.support_messages
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_admin_audit_logs_updated_at
-before update on public.admin_audit_logs
-for each row execute function public.set_updated_at();
-
-create or replace trigger set_public_webhook_logs_updated_at
-before update on public.webhook_logs
-for each row execute function public.set_updated_at();
-
-create table if not exists public.storefront_announcement (
-  id text primary key default 'singleton',
-  message text not null default '',
-  updated_at timestamptz not null default now()
+-- Delivery zones are intentionally independent of store_settings JSON.
+CREATE TABLE IF NOT EXISTS public.delivery_zones (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zone_name TEXT NOT NULL UNIQUE,
+  delivery_fee NUMERIC NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0),
+  min_order_amount NUMERIC NOT NULL DEFAULT 0 CHECK (min_order_amount >= 0),
+  estimated_minutes INTEGER NOT NULL DEFAULT 45 CHECK (estimated_minutes > 0),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at TIMESTAMPTZ,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-create or replace trigger set_public_storefront_announcement_updated_at
-before update on public.storefront_announcement
-for each row execute function public.set_updated_at();
+INSERT INTO public.delivery_zones (zone_name, delivery_fee, min_order_amount, estimated_minutes)
+VALUES
+  ('University Chowk', 150, 300, 35),
+  ('Satellite Town', 150, 300, 40),
+  ('Baghdad-ul-Jadeed Campus', 200, 300, 45),
+  ('Model Town', 150, 300, 35),
+  ('Dubai Chowk', 175, 300, 40),
+  ('One Unit Chowk', 150, 300, 40)
+ON CONFLICT (zone_name) DO NOTHING;
 
-create or replace function public.notify_admin_order_lifecycle()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if tg_op = 'update' and old.status is distinct from new.status then
-    insert into public.admin_audit_logs (admin_id, action, entity_type, entity_id, details_json)
-    values (
-      auth.uid(),
-      'order_status_update',
-      'orders',
-      new.id,
-      jsonb_build_object('from_status', old.status, 'to_status', new.status, 'order_number', new.order_number, 'updated_at', now())
-    );
-  end if;
-  return new;
-end;
+CREATE INDEX IF NOT EXISTS delivery_zones_active_idx
+  ON public.delivery_zones (is_active, zone_name) WHERE deleted_at IS NULL;
+
+-- Coupon codes are validated and consumed by server routes, never by browser writes.
+CREATE TABLE IF NOT EXISTS public.coupons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT NOT NULL UNIQUE CHECK (code = UPPER(BTRIM(code))),
+  discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'fixed')),
+  discount_value NUMERIC NOT NULL CHECK (discount_value > 0),
+  min_order_value NUMERIC NOT NULL DEFAULT 0 CHECK (min_order_value >= 0),
+  max_uses INTEGER CHECK (max_uses IS NULL OR max_uses >= 0),
+  used_count INTEGER NOT NULL DEFAULT 0 CHECK (used_count >= 0),
+  expires_at TIMESTAMPTZ,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at TIMESTAMPTZ,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS coupons_active_expiry_idx
+  ON public.coupons (is_active, expires_at) WHERE deleted_at IS NULL;
+
+CREATE OR REPLACE FUNCTION public.redeem_coupon(p_code TEXT)
+RETURNS TABLE (redeemed BOOLEAN)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE public.coupons
+  SET used_count = used_count + 1,
+      updated_at = NOW()
+  WHERE code = UPPER(BTRIM(p_code))
+    AND is_active = TRUE
+    AND deleted_at IS NULL
+    AND (expires_at IS NULL OR expires_at > NOW())
+    AND (max_uses IS NULL OR used_count < max_uses)
+  RETURNING TRUE;
+END;
 $$;
 
-drop trigger if exists trg_notify_admin_order_lifecycle on public.orders;
-create trigger trg_notify_admin_order_lifecycle
-after update of status
-on public.orders
-for each row
-execute function public.notify_admin_order_lifecycle();
+-- Riders are created before orders so the optional foreign key can be added safely.
+CREATE TABLE IF NOT EXISTS public.riders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL UNIQUE,
+  vehicle_number TEXT NOT NULL DEFAULT '',
+  is_available BOOLEAN NOT NULL DEFAULT TRUE,
+  active_orders_count INTEGER NOT NULL DEFAULT 0 CHECK (active_orders_count >= 0),
+  deleted_at TIMESTAMPTZ,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-do $$
-begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    alter publication supabase_realtime add table if not exists public.support_messages;
-  end if;
-end $$;
+CREATE INDEX IF NOT EXISTS riders_available_idx
+  ON public.riders (is_available, active_orders_count) WHERE deleted_at IS NULL;
+
+-- Preserve existing order fields and add operational metadata.
+ALTER TABLE public.orders
+  ADD COLUMN IF NOT EXISTS number TEXT,
+  ADD COLUMN IF NOT EXISTS order_number TEXT,
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS rider_id UUID REFERENCES public.riders(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS delivery_zone_id UUID REFERENCES public.delivery_zones(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS coupon_code TEXT,
+  ADD COLUMN IF NOT EXISTS discount_amount NUMERIC NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS points_redeemed INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS estimated_delivery_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS stock_decremented BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+
+UPDATE public.orders
+SET number = 'HMF-' || TO_CHAR(COALESCE(created_at, NOW()), 'YYYY') || '-' || LPAD(id, 4, '0')
+WHERE NULLIF(BTRIM(number), '') IS NULL;
+
+UPDATE public.orders
+SET order_number = number,
+    discount_amount = CASE
+      WHEN discount_amount = 0 THEN COALESCE(discount, 0)
+      ELSE discount_amount
+    END
+WHERE order_number IS DISTINCT FROM number
+   OR (discount_amount = 0 AND COALESCE(discount, 0) <> 0);
+
+ALTER TABLE public.orders ALTER COLUMN number SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS orders_number_unique_idx ON public.orders (number);
+CREATE UNIQUE INDEX IF NOT EXISTS orders_order_number_unique_idx ON public.orders (order_number);
+CREATE INDEX IF NOT EXISTS orders_user_id_idx ON public.orders (user_id);
+CREATE INDEX IF NOT EXISTS orders_status_idx ON public.orders (status);
+CREATE INDEX IF NOT EXISTS orders_created_at_idx ON public.orders (created_at DESC);
+CREATE INDEX IF NOT EXISTS orders_zone_idx ON public.orders (delivery_zone_id);
+CREATE INDEX IF NOT EXISTS orders_rider_idx ON public.orders (rider_id);
+CREATE INDEX IF NOT EXISTS orders_scheduled_for_idx ON public.orders (scheduled_for)
+  WHERE scheduled_for IS NOT NULL;
+CREATE INDEX IF NOT EXISTS orders_live_idx ON public.orders (status, created_at DESC)
+  WHERE deleted_at IS NULL;
+
+UPDATE public.orders
+SET stock_decremented = TRUE
+WHERE payment_status = 'paid'
+   OR status IN ('preparing', 'out_for_delivery', 'delivered');
+
+-- Existing numbers remain unchanged. Inserts without a number get a readable sequence value.
+CREATE SEQUENCE IF NOT EXISTS public.order_number_sequence START WITH 1;
+
+DO $$
+DECLARE
+  sequence_last_value BIGINT;
+  sequence_is_called BOOLEAN;
+  existing_max BIGINT;
+BEGIN
+  SELECT last_value, is_called
+    INTO sequence_last_value, sequence_is_called
+    FROM public.order_number_sequence;
+
+  SELECT MAX(SUBSTRING(number FROM '^HMF-[0-9]{4}-([0-9]+)$')::BIGINT)
+    INTO existing_max
+    FROM public.orders;
+
+  IF existing_max IS NOT NULL
+     AND (NOT sequence_is_called OR existing_max > sequence_last_value) THEN
+    PERFORM SETVAL('public.order_number_sequence', existing_max, TRUE);
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.assign_homefood_order_number()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' OR NULLIF(BTRIM(NEW.number), '') IS NULL THEN
+    NEW.number := FORMAT(
+      'HMF-%s-%s',
+      TO_CHAR(CURRENT_DATE, 'YYYY'),
+      LPAD(NEXTVAL('public.order_number_sequence')::TEXT, 4, '0')
+    );
+  END IF;
+
+  NEW.order_number := NEW.number;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS orders_assign_homefood_order_number ON public.orders;
+CREATE TRIGGER orders_assign_homefood_order_number
+  BEFORE INSERT OR UPDATE OF number ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION public.assign_homefood_order_number();
+
+CREATE OR REPLACE FUNCTION public.decrement_homefood_menu_stock()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  stock_item RECORD;
+  current_stock INTEGER;
+BEGIN
+  IF NEW.stock_decremented
+     OR NEW.status = 'cancelled'
+     OR NOT (
+       NEW.payment_status = 'paid'
+       OR NEW.status IN ('preparing', 'out_for_delivery', 'delivered')
+     ) THEN
+    RETURN NEW;
+  END IF;
+
+  IF jsonb_typeof(COALESCE(NEW.items, '[]'::jsonb)) <> 'array' THEN
+    RAISE EXCEPTION 'Order items must be a JSON array before stock can be reserved.';
+  END IF;
+
+  FOR stock_item IN
+    SELECT
+      (item.value ->> 'id')::BIGINT AS menu_item_id,
+      SUM(
+        CASE
+          WHEN item.value ->> 'quantity' ~ '^[0-9]+$'
+            THEN GREATEST((item.value ->> 'quantity')::INTEGER, 1)
+          ELSE 1
+        END
+      )::INTEGER AS quantity
+    FROM jsonb_array_elements(COALESCE(NEW.items, '[]'::jsonb)) AS item(value)
+    WHERE item.value ->> 'id' ~ '^[0-9]+$'
+    GROUP BY (item.value ->> 'id')::BIGINT
+  LOOP
+    UPDATE public.menu_items
+       SET remaining_stock = remaining_stock - stock_item.quantity,
+           sold_out = remaining_stock - stock_item.quantity <= 0,
+           available = CASE
+             WHEN remaining_stock - stock_item.quantity <= 0 THEN FALSE
+             ELSE available
+           END
+     WHERE id = stock_item.menu_item_id
+       AND remaining_stock IS NOT NULL
+       AND remaining_stock >= stock_item.quantity;
+
+    IF NOT FOUND THEN
+      SELECT remaining_stock
+        INTO current_stock
+        FROM public.menu_items
+       WHERE id = stock_item.menu_item_id;
+
+      IF FOUND AND current_stock IS NOT NULL THEN
+        RAISE EXCEPTION 'Insufficient stock for menu item %.', stock_item.menu_item_id
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END IF;
+  END LOOP;
+
+  NEW.stock_decremented := TRUE;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS orders_decrement_homefood_stock ON public.orders;
+CREATE TRIGGER orders_decrement_homefood_stock
+  BEFORE INSERT OR UPDATE OF status, payment_status ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION public.decrement_homefood_menu_stock();
+
+CREATE OR REPLACE FUNCTION public.initialize_homefood_menu_stock()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NEW.daily_stock_limit IS NULL THEN
+    NEW.remaining_stock := NULL;
+  ELSIF TG_OP = 'INSERT' THEN
+    NEW.remaining_stock := NEW.daily_stock_limit;
+  ELSIF NEW.daily_stock_limit IS DISTINCT FROM OLD.daily_stock_limit
+     OR NEW.remaining_stock IS NULL THEN
+    NEW.remaining_stock := NEW.daily_stock_limit;
+  END IF;
+
+  IF NEW.remaining_stock = 0 THEN
+    NEW.sold_out := TRUE;
+    NEW.available := FALSE;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF OLD.sold_out THEN
+      NEW.sold_out := FALSE;
+      NEW.available := TRUE;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS menu_items_initialize_homefood_stock ON public.menu_items;
+CREATE TRIGGER menu_items_initialize_homefood_stock
+  BEFORE INSERT OR UPDATE OF daily_stock_limit, remaining_stock ON public.menu_items
+  FOR EACH ROW EXECUTE FUNCTION public.initialize_homefood_menu_stock();
+
+-- A review is tied to a real order and menu item; only approved reviews are public.
+CREATE TABLE IF NOT EXISTS public.reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id TEXT NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL,
+  menu_item_id BIGINT NOT NULL REFERENCES public.menu_items(id) ON DELETE CASCADE,
+  rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment TEXT NOT NULL DEFAULT '',
+  is_approved BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (order_id, user_id, menu_item_id)
+);
+
+ALTER TABLE public.reviews
+  ADD COLUMN IF NOT EXISTS customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL;
+ALTER TABLE public.reviews ALTER COLUMN user_id DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS reviews_public_recent_idx
+  ON public.reviews (created_at DESC) WHERE is_approved = TRUE;
+CREATE INDEX IF NOT EXISTS reviews_user_recent_idx
+  ON public.reviews (user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_guest_order_unique_idx
+  ON public.reviews (order_id, menu_item_id) WHERE user_id IS NULL;
+
+CREATE TABLE IF NOT EXISTS public.meal_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL,
+  plan_type TEXT NOT NULL CHECK (plan_type IN ('weekly', 'monthly')),
+  days_of_week TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  meal_slot TEXT NOT NULL CHECK (meal_slot IN ('lunch', 'dinner')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'active', 'paused', 'cancelled', 'completed')),
+  start_date DATE NOT NULL,
+  end_date DATE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (end_date IS NULL OR end_date >= start_date)
+);
+
+ALTER TABLE public.meal_subscriptions
+  ADD COLUMN IF NOT EXISTS customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL;
+ALTER TABLE public.meal_subscriptions ALTER COLUMN user_id DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS meal_subscriptions_user_status_idx
+  ON public.meal_subscriptions (user_id, status);
+CREATE INDEX IF NOT EXISTS meal_subscriptions_customer_status_idx
+  ON public.meal_subscriptions (customer_id, status);
+
+CREATE TABLE IF NOT EXISTS public.reservations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL,
+  guest_name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  party_size INTEGER NOT NULL DEFAULT 1 CHECK (party_size BETWEEN 1 AND 30),
+  slot_time TIMESTAMPTZ NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'confirmed', 'cancelled', 'completed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.reservations
+  ADD COLUMN IF NOT EXISTS customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS reservations_slot_status_idx
+  ON public.reservations (slot_time, status);
+CREATE INDEX IF NOT EXISTS reservations_user_idx ON public.reservations (user_id);
+
+CREATE TABLE IF NOT EXISTS public.support_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id TEXT NOT NULL,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  sender_role TEXT NOT NULL CHECK (sender_role IN ('customer', 'admin')),
+  message TEXT NOT NULL CHECK (CHAR_LENGTH(BTRIM(message)) BETWEEN 1 AND 2000),
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS support_messages_session_created_idx
+  ON public.support_messages (session_id, created_at);
+CREATE INDEX IF NOT EXISTS support_messages_unread_idx
+  ON public.support_messages (is_read, created_at DESC) WHERE is_read = FALSE;
+
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT,
+  details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS admin_audit_logs_entity_idx
+  ON public.admin_audit_logs (entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS admin_audit_logs_admin_idx
+  ON public.admin_audit_logs (admin_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.api_rate_limits (
+  key TEXT PRIMARY KEY,
+  hits INTEGER NOT NULL DEFAULT 0 CHECK (hits >= 0),
+  window_start TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS api_rate_limits_window_idx
+  ON public.api_rate_limits (window_start);
+
+CREATE TABLE IF NOT EXISTS public.webhook_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status_code INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS webhook_logs_provider_created_idx
+  ON public.webhook_logs (provider, created_at DESC);
+
+-- Fast monthly revenue aggregation for server-side admin analytics.
+CREATE OR REPLACE FUNCTION public.monthly_revenue_summary()
+RETURNS TABLE (month_start DATE, revenue NUMERIC, order_count BIGINT)
+LANGUAGE SQL
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT
+    DATE_TRUNC('month', orders.created_at)::DATE AS month_start,
+    COALESCE(SUM(orders.total), 0)::NUMERIC AS revenue,
+    COUNT(*)::BIGINT AS order_count
+  FROM public.orders AS orders
+  WHERE orders.deleted_at IS NULL
+    AND orders.status <> 'cancelled'
+  GROUP BY DATE_TRUNC('month', orders.created_at)::DATE
+  ORDER BY month_start DESC;
+$$;
+
+REVOKE ALL ON FUNCTION public.monthly_revenue_summary() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.monthly_revenue_summary() TO service_role;
+REVOKE ALL ON SEQUENCE public.order_number_sequence FROM PUBLIC, anon, authenticated;
+GRANT USAGE, SELECT ON SEQUENCE public.order_number_sequence TO service_role;
+REVOKE ALL ON FUNCTION public.redeem_coupon(TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.redeem_coupon(TEXT) TO service_role;
+
+-- Timestamp maintenance for tables with an updated_at field.
+DROP TRIGGER IF EXISTS set_updated_at_orders ON public.orders;
+CREATE TRIGGER set_updated_at_orders
+  BEFORE UPDATE ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_menu_items ON public.menu_items;
+CREATE TRIGGER set_updated_at_menu_items
+  BEFORE UPDATE ON public.menu_items
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_profiles ON public.profiles;
+CREATE TRIGGER set_updated_at_profiles
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_customers ON public.customers;
+CREATE TRIGGER set_updated_at_customers
+  BEFORE UPDATE ON public.customers
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_delivery_zones ON public.delivery_zones;
+CREATE TRIGGER set_updated_at_delivery_zones
+  BEFORE UPDATE ON public.delivery_zones
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_coupons ON public.coupons;
+CREATE TRIGGER set_updated_at_coupons
+  BEFORE UPDATE ON public.coupons
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_riders ON public.riders;
+CREATE TRIGGER set_updated_at_riders
+  BEFORE UPDATE ON public.riders
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_meal_subscriptions ON public.meal_subscriptions;
+CREATE TRIGGER set_updated_at_meal_subscriptions
+  BEFORE UPDATE ON public.meal_subscriptions
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS set_updated_at_reservations ON public.reservations;
+CREATE TRIGGER set_updated_at_reservations
+  BEFORE UPDATE ON public.reservations
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Strict server-mediated access. Public clients only receive explicitly public data.
+ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_deals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.delivery_zones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meal_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reservations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.riders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.api_rate_limits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.webhook_logs ENABLE ROW LEVEL SECURITY;
+
+-- Ensure these app-compatible flags exist before the policies reference them.
+ALTER TABLE public.categories
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE public.daily_deals
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS valid_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- Remove policies created by the earlier core schema migration before replacing them.
+DROP POLICY IF EXISTS "Public can read store settings" ON public.store_settings;
+DROP POLICY IF EXISTS "Public read store_settings" ON public.store_settings;
+DROP POLICY IF EXISTS "Allow all store_settings" ON public.store_settings;
+REVOKE ALL ON public.store_settings FROM PUBLIC, anon, authenticated;
+
+DROP POLICY IF EXISTS "Public can read categories" ON public.categories;
+DROP POLICY IF EXISTS "Public read categories" ON public.categories;
+DROP POLICY IF EXISTS "Public read active categories" ON public.categories;
+DROP POLICY IF EXISTS "Allow all categories" ON public.categories;
+CREATE POLICY "Public read active categories" ON public.categories
+  FOR SELECT TO anon, authenticated USING (is_active = TRUE);
+GRANT SELECT ON public.categories TO anon, authenticated;
+
+DROP POLICY IF EXISTS "Public can read menu items" ON public.menu_items;
+DROP POLICY IF EXISTS "Public read menu_items" ON public.menu_items;
+DROP POLICY IF EXISTS "Public read menu items" ON public.menu_items;
+DROP POLICY IF EXISTS "Allow all menu_items" ON public.menu_items;
+CREATE POLICY "Public read menu items" ON public.menu_items
+  FOR SELECT TO anon, authenticated USING (deleted_at IS NULL);
+GRANT SELECT ON public.menu_items TO anon, authenticated;
+
+DROP POLICY IF EXISTS "Public can read daily deals" ON public.daily_deals;
+DROP POLICY IF EXISTS "Public read daily_deals" ON public.daily_deals;
+DROP POLICY IF EXISTS "Public read active daily deals" ON public.daily_deals;
+DROP POLICY IF EXISTS "Allow all daily_deals" ON public.daily_deals;
+CREATE POLICY "Public read active daily deals" ON public.daily_deals
+  FOR SELECT TO anon, authenticated
+  USING (
+    available = TRUE
+    AND is_active = TRUE
+    AND deleted_at IS NULL
+    AND (valid_until IS NULL OR valid_until > NOW())
+  );
+GRANT SELECT ON public.daily_deals TO anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.categories, public.menu_items,
+  public.daily_deals, public.delivery_zones FROM anon, authenticated;
+
+DROP POLICY IF EXISTS "Customers read own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Own profile select" ON public.profiles;
+DROP POLICY IF EXISTS "Customers update own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Own profile update" ON public.profiles;
+DROP POLICY IF EXISTS "Allow all profiles" ON public.profiles;
+CREATE POLICY "Customers read own profile" ON public.profiles
+  FOR SELECT TO authenticated USING (id = auth.uid() AND deleted_at IS NULL);
+GRANT SELECT ON public.profiles TO authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.profiles FROM anon, authenticated;
+
+DROP POLICY IF EXISTS "Customers read own customer record" ON public.customers;
+DROP POLICY IF EXISTS "Customers update own customer record" ON public.customers;
+DROP POLICY IF EXISTS "Allow all customers" ON public.customers;
+CREATE POLICY "Customers read own customer record" ON public.customers
+  FOR SELECT TO authenticated
+  USING (
+    auth_user_id = auth.uid()
+    OR LOWER(COALESCE(email, '')) = LOWER(COALESCE(auth.jwt() ->> 'email', ''))
+  );
+GRANT SELECT ON public.customers TO authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.customers FROM anon, authenticated;
+
+DROP POLICY IF EXISTS "Customers create orders through checkout" ON public.orders;
+DROP POLICY IF EXISTS "Customers read own orders" ON public.orders;
+DROP POLICY IF EXISTS "Administrators read all orders" ON public.orders;
+DROP POLICY IF EXISTS "Own orders select" ON public.orders;
+DROP POLICY IF EXISTS "Allow all orders" ON public.orders;
+CREATE POLICY "Customers read own orders" ON public.orders
+  FOR SELECT TO authenticated
+  USING (
+    deleted_at IS NULL
+    AND (
+      user_id = auth.uid()
+      OR LOWER(COALESCE(customer_email, '')) = LOWER(COALESCE(auth.jwt() ->> 'email', ''))
+    )
+  );
+GRANT SELECT ON public.orders TO authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.orders FROM anon, authenticated;
+
+DROP POLICY IF EXISTS "Administrators read notifications" ON public.admin_notifications;
+DROP POLICY IF EXISTS "Allow all admin_notifications" ON public.admin_notifications;
+REVOKE ALL ON public.admin_notifications FROM anon, authenticated;
+
+DROP POLICY IF EXISTS "Public read active delivery zones" ON public.delivery_zones;
+CREATE POLICY "Public read active delivery zones" ON public.delivery_zones
+  FOR SELECT TO anon, authenticated
+  USING (is_active = TRUE AND deleted_at IS NULL);
+GRANT SELECT ON public.delivery_zones TO anon, authenticated;
+
+DROP POLICY IF EXISTS "Allow all coupons" ON public.coupons;
+REVOKE ALL ON public.coupons FROM anon, authenticated;
+
+DROP POLICY IF EXISTS "Public read approved reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Customers read own reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Customers create own reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Customers create own delivered-order reviews" ON public.reviews;
+CREATE POLICY "Public read approved reviews" ON public.reviews
+  FOR SELECT TO anon, authenticated USING (is_approved = TRUE);
+CREATE POLICY "Customers read own reviews" ON public.reviews
+  FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Customers create own delivered-order reviews" ON public.reviews
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1
+      FROM public.orders
+      WHERE orders.id = reviews.order_id
+        AND orders.user_id = auth.uid()
+        AND orders.status = 'delivered'
+        AND orders.deleted_at IS NULL
+    )
+  );
+GRANT SELECT ON public.reviews TO anon, authenticated;
+GRANT INSERT ON public.reviews TO authenticated;
+
+DROP POLICY IF EXISTS "Customers read own meal subscriptions" ON public.meal_subscriptions;
+DROP POLICY IF EXISTS "Customers create own meal subscriptions" ON public.meal_subscriptions;
+CREATE POLICY "Customers read own meal subscriptions" ON public.meal_subscriptions
+  FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Customers create own meal subscriptions" ON public.meal_subscriptions
+  FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+GRANT SELECT, INSERT ON public.meal_subscriptions TO authenticated;
+
+DROP POLICY IF EXISTS "Customers read own reservations" ON public.reservations;
+DROP POLICY IF EXISTS "Customers create own reservations" ON public.reservations;
+CREATE POLICY "Customers read own reservations" ON public.reservations
+  FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Customers create own reservations" ON public.reservations
+  FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+GRANT SELECT, INSERT ON public.reservations TO authenticated;
+
+DROP POLICY IF EXISTS "Customers read own support messages" ON public.support_messages;
+DROP POLICY IF EXISTS "Customers send own support messages" ON public.support_messages;
+CREATE POLICY "Customers read own support messages" ON public.support_messages
+  FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Customers send own support messages" ON public.support_messages
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid() AND sender_role = 'customer');
+GRANT SELECT, INSERT ON public.support_messages TO authenticated;
+
+-- Fleet, audit, rate-limit, webhook, and coupon data are server-only.
+REVOKE ALL ON public.riders, public.admin_audit_logs, public.api_rate_limits, public.webhook_logs
+  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.meal_subscriptions, public.reservations, public.support_messages, public.reviews
+  FROM PUBLIC;
+GRANT ALL ON public.customers, public.delivery_zones, public.coupons, public.reviews,
+  public.meal_subscriptions, public.reservations, public.riders, public.support_messages,
+  public.admin_audit_logs, public.api_rate_limits, public.webhook_logs
+  TO service_role;
+
+-- Payment slips are private. Uploads and downloads must pass through validated server routes.
+UPDATE storage.buckets SET public = FALSE WHERE id = 'payment-slips';
+DROP POLICY IF EXISTS "Public payment slips access" ON storage.objects;
+DROP POLICY IF EXISTS "Public view payment slips" ON storage.objects;
+DROP POLICY IF EXISTS "Public upload payment slips" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated upload payment slips" ON storage.objects;
+DROP POLICY IF EXISTS "Upload payment slips" ON storage.objects;
+
+-- Realtime support chat is row-secured by the policies above.
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.support_messages;
+  EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN undefined_object THEN NULL;
+  END;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';

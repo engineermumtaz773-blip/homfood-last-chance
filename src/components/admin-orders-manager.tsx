@@ -496,7 +496,7 @@ export function AdminOrdersManager() {
                       </div>
                       {order.paymentSlipUrl && (
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                          <a href={order.paymentSlipUrl} target="_blank" rel="noreferrer"><img src={order.paymentSlipUrl} alt="Uploaded payment slip" width={52} height={52} style={{ objectFit: "cover", borderRadius: 8 }} /></a>
+                          <a href={`/api/orders/proof?number=${encodeURIComponent(order.number)}`} target="_blank" rel="noreferrer"><img src={`/api/orders/proof?number=${encodeURIComponent(order.number)}`} alt="Uploaded payment slip" width={52} height={52} style={{ objectFit: "cover", borderRadius: 8 }} /></a>
                           <button type="button" onClick={() => void handlePaymentApproval(order)} disabled={isUpdating} style={{ padding: "6px 10px", border: 0, borderRadius: 8, background: "#059669", color: "white", fontSize: 11, fontWeight: 700 }}>Approve &amp; Mark Paid</button>
                         </div>
                       )}

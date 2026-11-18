@@ -1,10 +1,11 @@
 import type { DbCustomer, DbOrder, DbOrderItem, DbOrderStatus, Deal, StoreSettings } from "@/lib/store-db";
 import type { Dish } from "@/lib/data";
+import { isSupabaseSchemaMismatch } from "@/lib/supabase-schema";
 
 type SupabaseRow = Record<string, unknown>;
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && serviceRoleKey);
 
@@ -87,6 +88,11 @@ function mapDish(row: SupabaseRow): Dish {
     portions,
     servingSize: stringValue(row, "servingSize", "serving_size"),
     dietaryTags: Array.isArray(value(row, "dietaryTags", "dietary_tags")) ? value(row, "dietaryTags", "dietary_tags") as string[] : [],
+    allergens: Array.isArray(value(row, "allergens")) ? value(row, "allergens") as string[] : [],
+    nutrition: value(row, "nutrition") && typeof value(row, "nutrition") === "object"
+      ? value(row, "nutrition") as Dish["nutrition"]
+      : undefined,
+    spiceLevel: stringValue(row, "spiceLevel", "spice_level") as Dish["spiceLevel"],
     rating: numberValue(row, "rating"),
     ratingCount: numberValue(row, "ratingCount", "rating_count"),
     available: availability === undefined ? true : booleanValue(row, "available", "is_available"),
@@ -121,6 +127,9 @@ function mapCustomer(row: SupabaseRow): DbCustomer {
     lastLoginAt: stringValue(row, "lastLoginAt", "last_login_at"),
     addresses: Array.isArray(value(row, "addresses")) ? value(row, "addresses") as string[] : [],
     notes: stringValue(row, "notes"),
+    favoriteDishIds: Array.isArray(value(row, "favorite_dish_ids"))
+      ? (value(row, "favorite_dish_ids") as unknown[]).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
+      : [],
   };
 }
 
@@ -161,44 +170,56 @@ async function request(path: string, init?: RequestInit): Promise<SupabaseRow[] 
   const url = supabaseUrl;
   const key = serviceRoleKey;
   if (!url || !key) throw new Error("Supabase configuration is unavailable.");
-  const response = await fetch(`${url.replace(/\/+$/, "")}/rest/v1/${path}`, {
-    ...init,
-    signal: init?.signal ?? AbortSignal.timeout(10_000),
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  const responseText = await response.text();
-  let responseBody: unknown = null;
-  let invalidJson = false;
   try {
-    responseBody = responseText ? JSON.parse(responseText) : null;
-  } catch {
-    invalidJson = true;
-  }
-  if (!response.ok) {
-    const body = !invalidJson && responseBody && typeof responseBody === "object"
-      ? responseBody as Record<string, unknown>
-      : {};
-    const error = new Error(
-      typeof body.message === "string"
-        ? body.message
-        : `Supabase request failed (${response.status}).`
-    ) as Error & SupabaseErrorPayload;
-    error.status = response.status;
-    if (typeof body.details === "string") error.details = body.details;
-    if (typeof body.hint === "string") error.hint = body.hint;
-    if (typeof body.code === "string") error.code = body.code;
+    const response = await fetch(`${url.replace(/\/+$/, "")}/rest/v1/${path}`, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(10_000),
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+    const responseText = await response.text();
+    let responseBody: unknown = null;
+    let invalidJson = false;
+    try {
+      responseBody = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      invalidJson = true;
+    }
+    if (!response.ok) {
+      const body = !invalidJson && responseBody && typeof responseBody === "object"
+        ? responseBody as Record<string, unknown>
+        : {};
+      const error = new Error(
+        typeof body.message === "string"
+          ? body.message
+          : `Supabase request failed (${response.status}).`
+      ) as Error & SupabaseErrorPayload;
+      error.status = response.status;
+      if (typeof body.details === "string") error.details = body.details;
+      if (typeof body.hint === "string") error.hint = body.hint;
+      if (typeof body.code === "string") error.code = body.code;
+      throw error;
+    }
+    if (invalidJson) throw new Error("Supabase returned invalid JSON for a successful request.");
+    if (!responseText && response.status !== 204) throw new Error("Supabase returned an empty response for a successful request.");
+    return (responseBody || []) as SupabaseRow[] | SupabaseRow;
+  } catch (error) {
+    const method = (init?.method || "GET").toUpperCase();
+    const table = path.split("?")[0];
+    if (isSupabaseSchemaMismatch(error)) {
+      console.error("[SUPABASE_SCHEMA_MISMATCH]", { table, method, error: getSupabaseErrorPayload(error) });
+      if (method === "GET" && table === "customers") return [];
+      throw new Error(`Supabase schema is incomplete for ${table}. Apply the required database migrations and retry.`);
+    }
+    console.error("[SUPABASE_REQUEST_FAILED]", { table, method, error: getSupabaseErrorPayload(error) });
     throw error;
   }
-  if (invalidJson) throw new Error("Supabase returned invalid JSON for a successful request.");
-  if (!responseText && response.status !== 204) throw new Error("Supabase returned an empty response for a successful request.");
-  return (responseBody || []) as SupabaseRow[] | SupabaseRow;
 }
 
 function rowsOf(result: SupabaseRow[] | SupabaseRow, operation: string): SupabaseRow[] {
@@ -470,24 +491,29 @@ export async function supabaseAuthUserExists(email: string): Promise<boolean> {
 
   const perPage = 1000;
   for (let page = 1; ; page += 1) {
-    const response = await fetch(
-      `${supabaseUrl.replace(/\/+$/, "")}/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
-      {
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
+    try {
+      const response = await fetch(
+        `${supabaseUrl.replace(/\/+$/, "")}/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
+        {
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+          cache: "no-store",
+          signal: AbortSignal.timeout(8_000),
         },
-        cache: "no-store",
-        signal: AbortSignal.timeout(8_000),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`Supabase Auth user lookup failed (${response.status}).`);
+      );
+      if (!response.ok) {
+        throw new Error(`Supabase Auth user lookup failed (${response.status}).`);
+      }
+      const payload = await response.json() as { users?: Array<{ email?: string | null }> };
+      const users = Array.isArray(payload.users) ? payload.users : [];
+      if (users.some((user) => user.email?.trim().toLowerCase() === normalizedEmail)) return true;
+      if (users.length < perPage) return false;
+    } catch (error) {
+      console.error("[SUPABASE_AUTH_USER_LOOKUP_FAILED]", error);
+      throw error;
     }
-    const payload = await response.json() as { users?: Array<{ email?: string | null }> };
-    const users = Array.isArray(payload.users) ? payload.users : [];
-    if (users.some((user) => user.email?.trim().toLowerCase() === normalizedEmail)) return true;
-    if (users.length < perPage) return false;
   }
 }
 
@@ -562,6 +588,126 @@ export async function upsertSupabasePhoneCustomer(customer: {
 export async function deleteSupabaseCustomer(id: string) {
   await request(`customers?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
   return true;
+}
+
+export async function getSupabaseCustomerFavorites(customerId: string) {
+  const rows = rowsOf(await request(`customers?id=eq.${encodeURIComponent(customerId)}&select=favorite_dish_ids`), "Customer favorites query");
+  if (!rows[0]) return null;
+  const ids = value(rows[0], "favorite_dish_ids");
+  return Array.isArray(ids) ? ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : [];
+}
+
+export async function updateSupabaseCustomerFavorites(customerId: string, ids: number[]) {
+  const favorites = [...new Set(ids)].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 100);
+  const rows = rowsOf(await request(`customers?id=eq.${encodeURIComponent(customerId)}&select=favorite_dish_ids`, {
+    method: "PATCH",
+    body: JSON.stringify({ favorite_dish_ids: favorites }),
+  }), "Customer favorites update");
+  if (!rows[0]) return null;
+  const saved = value(rows[0], "favorite_dish_ids");
+  return Array.isArray(saved) ? saved.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : [];
+}
+
+export async function getSupabaseDeliveryZones() {
+  return rowsOf(await request("delivery_zones?select=id,zone_name,delivery_fee,min_order_amount,estimated_minutes&is_active=eq.true&deleted_at=is.null&order=zone_name.asc"), "Delivery zones query");
+}
+
+export async function validateSupabaseCoupon(code: string) {
+  const rows = rowsOf(await request(`coupons?code=eq.${encodeURIComponent(code)}&is_active=eq.true&deleted_at=is.null&select=code,discount_type,discount_value,min_order_value,max_uses,used_count,expires_at&limit=1`), "Coupon query");
+  return rows[0] || null;
+}
+
+export async function incrementSupabaseCouponUsage(code: string) {
+  const rows = rowsOf(await request("rpc/redeem_coupon", {
+    method: "POST",
+    body: JSON.stringify({ p_code: code }),
+  }), "Coupon redemption");
+  if (rows[0]?.redeemed !== true) throw new Error("Coupon is no longer available.");
+}
+
+export async function getSupabaseCustomerSubscriptions(customerId: string) {
+  return rowsOf(await request(`meal_subscriptions?customer_id=eq.${encodeURIComponent(customerId)}&select=*&order=created_at.desc`), "Customer subscriptions query");
+}
+
+export async function createSupabaseSubscription(input: {
+  customerId: string;
+  planType: "weekly" | "monthly";
+  daysOfWeek: string[];
+  mealSlot: "lunch" | "dinner";
+  startDate: string;
+  endDate?: string;
+}) {
+  return firstRow(await request("meal_subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: input.customerId,
+      plan_type: input.planType,
+      days_of_week: input.daysOfWeek,
+      meal_slot: input.mealSlot,
+      start_date: input.startDate,
+      end_date: input.endDate || null,
+    }),
+  }), "Meal subscription insert");
+}
+
+export async function createSupabaseReservation(input: {
+  customerId?: string;
+  guestName: string;
+  phone: string;
+  partySize: number;
+  slotTime: string;
+  notes: string;
+}) {
+  return firstRow(await request("reservations", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: input.customerId || null,
+      guest_name: input.guestName,
+      phone: input.phone,
+      party_size: input.partySize,
+      slot_time: input.slotTime,
+      notes: input.notes,
+    }),
+  }), "Reservation insert");
+}
+
+export async function getSupabaseReservations() {
+  return rowsOf(await request("reservations?select=*&order=slot_time.asc"), "Reservations query");
+}
+
+export async function updateSupabaseReservation(id: string, status: "confirmed" | "cancelled" | "completed") {
+  const rows = rowsOf(await request(`reservations?id=eq.${encodeURIComponent(id)}&select=*`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  }), "Reservation update");
+  return rows[0] || null;
+}
+
+export async function getSupabaseCustomerReviews(customerId: string) {
+  return rowsOf(await request(`reviews?customer_id=eq.${encodeURIComponent(customerId)}&select=*&order=created_at.desc`), "Customer reviews query");
+}
+
+export async function createSupabaseReview(input: {
+  orderId: string;
+  customerId?: string;
+  menuItemId: number;
+  rating: number;
+  comment: string;
+}) {
+  return firstRow(await request("reviews", {
+    method: "POST",
+    body: JSON.stringify({
+      order_id: input.orderId,
+      customer_id: input.customerId || null,
+      menu_item_id: input.menuItemId,
+      rating: input.rating,
+      comment: input.comment,
+    }),
+  }), "Review insert");
+}
+
+export async function getPublicSupabaseReviews() {
+  return rowsOf(await request("reviews?select=rating,comment,created_at,menu_item_id&is_approved=eq.true&order=created_at.desc&limit=50"), "Public reviews query");
 }
 
 export type OrderMessage = {

@@ -40,13 +40,16 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
   const [addedDishId, setAddedDishId] = useState<number | null>(null);
 
   useEffect(() => {
-    setCustomer(readCustomerProfile());
+    const initialRead = window.requestAnimationFrame(() => setCustomer(readCustomerProfile()));
     const onAuth = (e: Event) => {
       const ce = e as CustomEvent<CustomerProfile | null>;
       setCustomer(ce.detail || null);
     };
     window.addEventListener(CUSTOMER_AUTH_EVENT, onAuth);
-    return () => window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuth);
+    return () => {
+      window.cancelAnimationFrame(initialRead);
+      window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuth);
+    };
   }, []);
 
   const filteredDishes = useMemo(() => {
