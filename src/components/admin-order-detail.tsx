@@ -8,9 +8,14 @@ import type { OrderMessage } from "@/lib/supabase-server";
 
 const statuses: Array<{ value: DbOrderStatus; label: string }> = [
   { value: "pending", label: "New" },
+  { value: "confirmed", label: "Confirmed" },
   { value: "preparing", label: "Preparing" },
-  { value: "out_for_delivery", label: "Ready / Out for delivery" },
+  { value: "ready", label: "Ready" },
+  { value: "out_for_delivery", label: "Out for delivery" },
+  { value: "delivering", label: "Delivering" },
+  { value: "arriving", label: "Arriving" },
   { value: "delivered", label: "Delivered" },
+  { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 

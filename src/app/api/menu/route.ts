@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import {
   assertSupabaseConfigured,
   getSupabaseDishes,
+  getSupabaseErrorPayload,
   upsertSupabaseDish,
   deleteSupabaseDish,
   setSupabaseDishAvailability,
 } from "@/lib/supabase-server";
 import { supabaseErrorResponse } from "@/lib/api-errors";
 import { requireAdminRequest } from "@/lib/admin-request";
+import type { Dish } from "@/lib/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function revalidateMenuPaths() {
+  revalidatePath("/admin/menu");
+  revalidatePath("/menu");
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,16 +59,40 @@ export async function POST(request: NextRequest) {
       featured,
       servingSize,
       dietaryTags,
+      dailyStockLimit,
+      remainingStock,
+      nutrition,
+      allergens,
+      addons,
     } = body;
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "Dish name is required" }, { status: 400 });
     }
-    const cat = (category || (Array.isArray(categories) && categories[0]) || "Dinner").trim();
+    const categoryList = Array.isArray(categories) ? categories.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0) : [];
+    const cat = (typeof category === "string" && category.trim()) || categoryList[0] || "Dinner";
 
     if (!Array.isArray(portions) || portions.length === 0) {
       return NextResponse.json({ error: "At least one portion with a price in PKR is required" }, { status: 400 });
     }
+    if (![dailyStockLimit, remainingStock].every((value) => value === undefined || value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0))) {
+      return NextResponse.json({ error: "Stock limits must be non-negative numbers." }, { status: 400 });
+    }
+    if (nutrition !== undefined && (!nutrition || typeof nutrition !== "object" || Array.isArray(nutrition))) {
+      return NextResponse.json({ error: "Nutrition must be a valid object." }, { status: 400 });
+    }
+    if (nutrition && !Object.values(nutrition).every((value) => value === undefined || value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0))) {
+      return NextResponse.json({ error: "Nutrition values must be non-negative numbers." }, { status: 400 });
+    }
+    if (allergens !== undefined && (!Array.isArray(allergens) || allergens.some((value: unknown) => typeof value !== "string"))) {
+      return NextResponse.json({ error: "Allergens must be a list of names." }, { status: 400 });
+    }
+    if (addons !== undefined && !Array.isArray(addons)) {
+      return NextResponse.json({ error: "Add-ons must be a list." }, { status: 400 });
+    }
 
+    if (portions.some((portion: unknown) => !portion || typeof portion !== "object" || Array.isArray(portion))) {
+      return NextResponse.json({ error: "Each portion must include a name and price." }, { status: 400 });
+    }
     const validPortions = portions.map((p: { name?: string; price?: number }) => ({
       name: String(p.name || "regular").trim(),
       price: Math.max(0, Number(p.price) || 0),
@@ -70,7 +102,7 @@ export async function POST(request: NextRequest) {
       id: typeof id === "number" ? id : undefined,
       name: name.trim(),
       category: cat,
-      categories: Array.isArray(categories) && categories.length > 0 ? categories : [cat],
+      categories: categoryList.length > 0 ? categoryList : [cat],
       description: typeof description === "string" ? description.trim() : "",
       imageUrl: typeof imageUrl === "string" ? imageUrl.trim() : "",
       portions: validPortions,
@@ -79,14 +111,21 @@ export async function POST(request: NextRequest) {
       available: typeof available === "boolean" ? available : true,
       soldOut: typeof soldOut === "boolean" ? soldOut : false,
       featured: typeof featured === "boolean" ? featured : false,
+      dailyStockLimit: dailyStockLimit === null || typeof dailyStockLimit === "number" ? dailyStockLimit : undefined,
+      remainingStock: remainingStock === null || typeof remainingStock === "number" ? remainingStock : undefined,
+      nutrition: nutrition as Dish["nutrition"] | undefined,
+      allergens: Array.isArray(allergens) ? allergens as string[] : undefined,
+      addons: Array.isArray(addons) ? addons : undefined,
     };
     assertSupabaseConfigured();
     const savedDish = await upsertSupabaseDish(dishInput);
+    revalidateMenuPaths();
 
     return NextResponse.json({ success: true, dish: savedDish });
   } catch (error) {
     console.error("Failed to save menu dish:", error);
-    return supabaseErrorResponse(error, "Could not save dish to database");
+    const status = getSupabaseErrorPayload(error).status;
+    return supabaseErrorResponse(error, "Could not save dish to database", status && status >= 400 && status < 500 ? status : 500);
   }
 }
 
@@ -107,6 +146,7 @@ export async function PATCH(request: NextRequest) {
       if (!updated) {
         return NextResponse.json({ error: "Dish not found" }, { status: 404 });
       }
+      revalidateMenuPaths();
       return NextResponse.json({ success: true, dish: updated });
     }
 
@@ -135,6 +175,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Dish not found" }, { status: 404 });
     }
 
+    revalidateMenuPaths();
     return NextResponse.json({ success: true, message: `Dish ${id} deleted successfully` });
   } catch (error) {
     console.error("Failed to delete dish:", error);

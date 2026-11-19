@@ -16,6 +16,7 @@ import {
 } from "@/lib/customer";
 import { CustomerAuthModal } from "@/components/customer-auth-modal";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
+import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 
 const emptyProfile: CustomerProfile = {
   name: "",
@@ -73,6 +74,10 @@ export function ProfilePortal() {
     const syncProfile = () => {
       const saved = readCustomerProfile();
       if (saved) setProfile(saved);
+      if (!saved || !((saved.emailVerified && saved.email) || (saved.phoneVerified && saved.phone))) {
+        setOrders([]);
+        return;
+      }
       void loadCustomerOrders().then(setOrders).catch((error: unknown) => console.error("Could not load customer orders from Supabase.", error));
     };
 
@@ -85,6 +90,9 @@ export function ProfilePortal() {
         if (data.authenticated && data.customer) {
           saveCustomerProfile(data.customer, false);
           setProfile(data.customer);
+          void loadCustomerOrders().then(setOrders).catch((loadError: unknown) => console.error("Could not load customer orders from Supabase.", loadError));
+        } else {
+          setOrders([]);
         }
       })
       .catch(() => undefined);
@@ -99,7 +107,18 @@ export function ProfilePortal() {
     };
 
     window.addEventListener(CUSTOMER_AUTH_EVENT, onAuthChanged);
-    return () => window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuthChanged);
+    const refreshOrders = (event: Event) => {
+      const detail = (event as CustomEvent<{ table?: string }>).detail;
+      const currentCustomer = readCustomerProfile();
+      if (detail?.table === "orders" && currentCustomer && ((currentCustomer.emailVerified && currentCustomer.email) || (currentCustomer.phoneVerified && currentCustomer.phone))) {
+        void loadCustomerOrders().then(setOrders).catch((loadError: unknown) => console.error("Could not refresh customer orders.", loadError));
+      }
+    };
+    window.addEventListener(REALTIME_SYNC_EVENT, refreshOrders);
+    return () => {
+      window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuthChanged);
+      window.removeEventListener(REALTIME_SYNC_EVENT, refreshOrders);
+    };
   }, []);
 
   const handleAuthSuccess = useCallback((updated: CustomerProfile) => {
@@ -175,59 +194,35 @@ export function ProfilePortal() {
   }
 
   const isVerified = Boolean((profile.emailVerified && profile.email) || (profile.phoneVerified && profile.phone));
+  const displayName = profile.name.trim()
+    || profile.email?.split("@")[0]
+    || profile.phone
+    || "";
   const initials = useMemo(() => {
-    if (!profile.name.trim()) return "✦";
-    return profile.name
+    const name = profile.name.trim() || profile.email?.split("@")[0] || profile.phone || "";
+    if (!name) return "?";
+    return name
       .split(" ")
       .map((n) => n[0])
       .join("")
       .toUpperCase()
       .slice(0, 2);
-  }, [profile.name]);
+  }, [profile.name, profile.email, profile.phone]);
 
   return (
-    <div
-      style={{
-        maxWidth: "1080px",
-        margin: "0 auto",
-        padding: "20px 16px 80px 16px",
-      }}
-    >
-      {/* Disclaimer Banner: Strictly for Customers */}
+    <>
+      <section className="page-hero profile-page-hero">
+        <span className="section-kicker">Your Home Made Food account</span>
+        <h1>{displayName ? `${displayName}'s profile` : "Your profile"}</h1>
+        <p>Manage your delivery details and see recent order requests from this device.</p>
+      </section>
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "12px",
-          padding: "10px 18px",
-          borderRadius: "14px",
-          background: "rgba(23, 63, 43, 0.08)",
-          border: "1px solid rgba(23, 63, 43, 0.15)",
-          marginBottom: "24px",
-          fontSize: "12px",
-          color: "#166534",
+          maxWidth: "1080px",
+          margin: "0 auto",
+          padding: "20px 16px 80px 16px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span>👤</span>
-          <strong>Customer Portal:</strong>
-          <span>This account area is exclusively for regular food ordering and delivery customers.</span>
-        </div>
-        <Link
-          href="/admin/login"
-          style={{
-            color: "#166534",
-            fontWeight: 700,
-            textDecoration: "underline",
-            fontSize: "12px",
-          }}
-        >
-          Staff &amp; Store Admin Login →
-        </Link>
-      </div>
-
       {/* Main Glassmorphism Hero Card */}
       <div
         style={{
@@ -424,7 +419,7 @@ export function ProfilePortal() {
                   CUSTOMER PROFILE
                 </span>
                 <h1 style={{ margin: "2px 0 4px 0", fontSize: "26px", fontWeight: 800, color: "#0f172a" }}>
-                  {profile.name || "Guest Customer"}
+                  {displayName || "Your profile"}
                 </h1>
                 <p style={{ margin: 0, fontSize: "14px", color: "#64748b" }}>
                   {profile.email || "No email address linked yet"}
@@ -1071,7 +1066,7 @@ export function ProfilePortal() {
                         {new Date(o.placedAt).toLocaleString()} · {o.items}
                       </small>
                     </div>
-                    <div style={{ textAlign: "right" }}>
+                    <div style={{ display: "grid", justifyItems: "end", gap: 6, textAlign: "right" }}>
                       <strong style={{ display: "block", fontSize: "15px", color: "#166534" }}>
                         Rs. {o.total.toLocaleString()}
                       </strong>
@@ -1087,6 +1082,9 @@ export function ProfilePortal() {
                       >
                         {o.status}
                       </span>
+                      <Link href={`/track-order?order=${encodeURIComponent(o.number)}&phone=${encodeURIComponent(profile.phone)}`} style={{ color: "#176b47", fontSize: 11, fontWeight: 700, textDecoration: "underline" }}>
+                        {["pending", "confirmed", "new"].includes(o.status.toLowerCase()) ? "Track / cancel" : "Track order"}
+                      </Link>
                     </div>
                   </div>
                 ))}
@@ -1172,6 +1170,7 @@ export function ProfilePortal() {
             : "Complete 6-digit Email OTP verification to activate your customer profile."
         }
       />
-    </div>
+      </div>
+    </>
   );
 }

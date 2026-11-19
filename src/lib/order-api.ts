@@ -1,3 +1,5 @@
+import type { DbOrder, DbOrderItem, DbOrderStatus } from "@/lib/store-db";
+
 export type OrderSubmission = {
   name: string;
   phone: string;
@@ -17,38 +19,36 @@ export type OrderSubmission = {
 export type LiveOrderStatus = {
   number: string;
   total: number;
-  status: "new" | "preparing" | "ready" | "delivering" | "arriving" | "completed" | "cancelled";
+  status: "new" | "confirmed" | "preparing" | "ready" | "delivering" | "arriving" | "completed" | "cancelled";
   created_at?: string;
   updated_at: string;
+  customerName?: string;
+  customerPhone?: string;
+  area?: string;
   riderName?: string;
   riderPhone?: string;
+  estimatedDelivery?: string;
+  items: DbOrderItem[];
   itemsSummary?: string;
   address?: string;
-  paymentStatus?: "pending" | "verification_pending" | "paid" | "rejected";
+  subtotal: number;
+  discount: number;
+  deliveryFee: number;
+  paymentMethod: string;
+  paymentStatus?: DbOrder["paymentStatus"];
+  paymentSlipUrl?: string;
+  paymentSlipName?: string;
   customerNote?: string;
+  notes?: string;
   adminNotes?: string;
   adminMediaUrl?: string;
+  cancellationReason?: string;
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function parseStatus(value: unknown): LiveOrderStatus["status"] | null {
-  return value === "new" ||
-    value === "preparing" ||
-    value === "ready" ||
-    value === "delivering" ||
-    value === "arriving" ||
-    value === "completed" ||
-    value === "cancelled"
-    ? value
-    : null;
-}
-
-const statusMap: Record<string, LiveOrderStatus["status"]> = {
+const statusMap: Record<DbOrderStatus | "new" | "ready" | "delivering" | "arriving" | "completed", LiveOrderStatus["status"]> = {
   pending: "new",
   new: "new",
+  confirmed: "confirmed",
   preparing: "preparing",
   ready: "ready",
   out_for_delivery: "delivering",
@@ -59,53 +59,79 @@ const statusMap: Record<string, LiveOrderStatus["status"]> = {
   cancelled: "cancelled",
 };
 
+function mapLiveOrder(order: DbOrder): LiveOrderStatus {
+  return {
+    number: order.number,
+    total: order.total,
+    status: statusMap[order.status] || "new",
+    created_at: order.createdAt,
+    updated_at: order.updatedAt,
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    area: order.area,
+    riderName: order.riderName,
+    riderPhone: order.riderPhone,
+    estimatedDelivery: order.estimatedDelivery,
+    items: order.items,
+    itemsSummary: order.items.map((item) => `${item.name} (${item.portion}) × ${item.quantity}`).join(", "),
+    address: order.address,
+    subtotal: order.subtotal,
+    discount: order.discount,
+    deliveryFee: order.deliveryFee,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    paymentSlipUrl: order.paymentSlipUrl,
+    paymentSlipName: order.paymentSlipName,
+    customerNote: order.customerNote,
+    notes: order.notes,
+    adminNotes: order.adminNotes,
+    adminMediaUrl: order.adminMediaUrl,
+    cancellationReason: order.cancellationReason,
+  };
+}
+
 export async function createLiveOrder(order: OrderSubmission): Promise<LiveOrderStatus> {
   const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        customerName: order.name,
-        customerPhone: order.phone,
-        customerEmail: order.email,
-        area: order.area,
-        address: order.address,
-        notes: order.notes,
-        paymentMethod: order.payment,
-        items: order.items.map((item) => ({
-          id: item.id,
-          name: item.name || `Dish #${item.id}`,
-          portion: item.portion,
-          price: item.price || 0,
-          quantity: item.quantity,
-          specialInstructions: item.note,
-        })),
-        subtotal: order.subtotal || 0,
-        discount: order.discount || 0,
-        deliveryFee: order.deliveryFee || 0,
-        total: order.total || order.subtotal || 0,
-      }),
-      cache: "no-store",
-    });
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      customerName: order.name,
+      customerPhone: order.phone,
+      customerEmail: order.email,
+      area: order.area,
+      address: order.address,
+      notes: order.notes,
+      paymentMethod: order.payment,
+      items: order.items.map((item) => ({
+        id: item.id,
+        name: item.name || `Dish #${item.id}`,
+        portion: item.portion,
+        price: item.price || 0,
+        quantity: item.quantity,
+        specialInstructions: item.note,
+      })),
+      subtotal: order.subtotal || 0,
+      discount: order.discount || 0,
+      deliveryFee: order.deliveryFee || 0,
+      total: order.total || order.subtotal || 0,
+    }),
+    cache: "no-store",
+  });
 
   if (!res.ok) {
     const data = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(data?.error || `Order could not be saved (${res.status}).`);
   }
-  const data = await res.json() as { ok?: boolean; order?: { number: string; total: number; status: string; createdAt: string; riderName?: string; riderPhone?: string } };
+  const data = await res.json() as { ok?: boolean; order?: DbOrder };
   if (!data.ok || !data.order) throw new Error("The database did not return the saved order.");
-  return {
-    number: data.order.number,
-    total: data.order.total,
-    status: statusMap[data.order.status] || "new",
-    created_at: data.order.createdAt,
-    updated_at: data.order.createdAt,
-    riderName: data.order.riderName,
-    riderPhone: data.order.riderPhone,
-  };
+  return mapLiveOrder(data.order);
 }
 
 export async function getLiveOrderStatus(number: string, phone: string): Promise<LiveOrderStatus> {
-  const query = new URLSearchParams({ number, phone });
+  const query = new URLSearchParams();
+  if (number.trim()) query.set("number", number.trim());
+  if (phone.trim()) query.set("phone", phone.trim());
+  if (!query.size) throw new Error("Enter an order number or customer phone number.");
   const res = await fetch(`/api/orders?${query}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(5000),
@@ -114,41 +140,7 @@ export async function getLiveOrderStatus(number: string, phone: string): Promise
     const error = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(error?.error || `Order tracking failed (${res.status}).`);
   }
-  const data = await res.json() as {
-    ok?: boolean;
-    order?: {
-      number: string;
-      total: number;
-      status: string;
-      createdAt?: string;
-      updatedAt: string;
-      riderName?: string;
-      riderPhone?: string;
-      address?: string;
-      items?: Array<{ name: string; portion: string; quantity: number }>;
-      paymentStatus?: LiveOrderStatus["paymentStatus"];
-      customerNote?: string;
-      adminNotes?: string;
-      adminMediaUrl?: string;
-    };
-  };
-  if (data.ok && data.order) {
-    const o = data.order;
-    return {
-      number: o.number,
-      total: o.total,
-      status: statusMap[o.status] || "new",
-      created_at: o.createdAt || o.updatedAt,
-      updated_at: o.updatedAt,
-      riderName: o.riderName,
-      riderPhone: o.riderPhone,
-      address: o.address,
-      itemsSummary: o.items ? o.items.map((i) => `${i.name} (${i.portion}) × ${i.quantity}`).join(", ") : undefined,
-      paymentStatus: o.paymentStatus,
-      customerNote: o.customerNote,
-      adminNotes: o.adminNotes,
-      adminMediaUrl: o.adminMediaUrl,
-    }
-  }
+  const data = await res.json() as { ok?: boolean; order?: DbOrder };
+  if (data.ok && data.order) return mapLiveOrder(data.order);
   throw new Error("The database did not return the requested order.");
 }

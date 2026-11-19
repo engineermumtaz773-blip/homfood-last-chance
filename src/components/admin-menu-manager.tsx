@@ -151,6 +151,7 @@ export function AdminMenuManager() {
     setStatusMessage({ text: "Saving changes to database..." });
 
     try {
+      const existingDish = editingId === null ? undefined : dishes.find((dish) => dish.id === editingId);
       const payload = {
         id: editingId ?? undefined,
         name: name.trim(),
@@ -162,6 +163,11 @@ export function AdminMenuManager() {
         available: !soldOut && available,
         soldOut,
         featured,
+        dailyStockLimit: existingDish?.dailyStockLimit ?? null,
+        remainingStock: existingDish?.remainingStock ?? null,
+        ...(existingDish?.nutrition ? { nutrition: existingDish.nutrition } : {}),
+        allergens: existingDish?.allergens ?? [],
+        addons: existingDish?.addons ?? [],
       };
 
       const res = await fetch("/api/menu", {
@@ -170,10 +176,10 @@ export function AdminMenuManager() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => null) as { success?: boolean; dish?: Dish; error?: string; message?: string } | null;
+      if (!res.ok) throw new Error(data?.error || data?.message || `Database rejected the dish update (HTTP ${res.status}).`);
 
-      if (data.success) {
+      if (data?.success && data.dish) {
         setStatusMessage({ text: `✓ "${name}" saved to database successfully!` });
         try {
           const channel = new BroadcastChannel("hmf_menu_channel");
@@ -185,12 +191,10 @@ export function AdminMenuManager() {
         window.dispatchEvent(new Event("hmf-stock-change"));
         await refresh();
         setView("list");
-      } else {
-        setStatusMessage({ text: "Database save was not confirmed.", error: true });
-      }
+      } else throw new Error(data?.error || data?.message || "The database did not confirm the dish save.");
     } catch (err) {
       console.error(err);
-      setStatusMessage({ text: "Failed to persist changes to database.", error: true });
+      setStatusMessage({ text: err instanceof Error ? err.message : "Could not save this dish. Check the database configuration and try again.", error: true });
     } finally {
       setIsSubmitting(false);
     }

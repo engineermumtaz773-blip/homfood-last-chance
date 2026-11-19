@@ -4,11 +4,12 @@ import {
   type DbOrderItem,
 } from "@/lib/store-db";
 import { getKitchenAvailability } from "@/lib/kitchen-hours";
-import { assertSupabaseConfigured, deleteSupabaseOrder, getSupabaseOrder, getSupabaseOrders, getSupabaseSettings, insertSupabaseNotification, insertSupabaseOrder, updateSupabaseOrder, upsertSupabaseCustomer } from "@/lib/supabase-server";
+import { assertSupabaseConfigured, deleteSupabaseOrder, getSupabaseOrder, getSupabaseOrders, getSupabaseOrdersForPhone, getSupabaseSettings, insertSupabaseNotification, insertSupabaseOrder, updateSupabaseOrder, upsertSupabaseCustomer } from "@/lib/supabase-server";
 import { cookies } from "next/headers";
 import { readAdminSession } from "@/lib/admin-session";
 import { supabaseErrorResponse } from "@/lib/api-errors";
 import { requireAdminRequest } from "@/lib/admin-request";
+import { CUSTOMER_SESSION_COOKIE, verifySignedCustomerSession, type CustomerSessionPayload } from "@/lib/customer-session";
 
 export const runtime = "nodejs";
 
@@ -16,19 +17,40 @@ export async function GET(request: NextRequest) {
   try {
     assertSupabaseConfigured();
     const { searchParams } = new URL(request.url);
-    const number = searchParams.get("number");
-    const phone = searchParams.get("phone") || undefined;
+    const number = searchParams.get("number")?.trim() || "";
+    const phone = searchParams.get("phone")?.trim() || "";
 
     if (number) {
-      if (!phone?.trim()) {
+      let customerSession: CustomerSessionPayload | null = null;
+      if (!phone) {
         const authError = await requireAdminRequest(request);
-        if (authError) return NextResponse.json({ ok: false, error: "Phone number or admin authentication is required to look up an order." }, { status: 400 });
+        if (authError) {
+          customerSession = verifySignedCustomerSession(request.cookies.get(CUSTOMER_SESSION_COOKIE)?.value);
+          if (!customerSession || customerSession.exp <= Math.floor(Date.now() / 1000) || !customerSession.verified || (!customerSession.email && !customerSession.phone)) {
+            return NextResponse.json({ ok: false, error: "A phone number or verified customer session is required to look up an order." }, { status: 401 });
+          }
+        }
       }
-      const order = await getSupabaseOrder(number, phone);
+      const order = await getSupabaseOrder(number, phone || undefined);
       if (!order) {
         return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
       }
+      if (customerSession) {
+        const ownsByEmail = Boolean(customerSession.email && order.customerEmail?.toLowerCase() === customerSession.email.toLowerCase());
+        const sessionPhone = customerSession.phone?.replace(/\D/g, "").slice(-10);
+        const ownsByPhone = Boolean(sessionPhone && sessionPhone.length === 10 && order.customerPhone.replace(/\D/g, "").endsWith(sessionPhone));
+        if (!ownsByEmail && !ownsByPhone) return NextResponse.json({ ok: false, error: "Order not found for this customer." }, { status: 404 });
+      }
       return NextResponse.json({ ok: true, order, source: "supabase" });
+    }
+
+    if (phone) {
+      if (phone.replace(/\D/g, "").length < 10) {
+        return NextResponse.json({ ok: false, error: "Enter the customer phone number used for the order." }, { status: 400 });
+      }
+      const orders = await getSupabaseOrdersForPhone(phone);
+      if (!orders.length) return NextResponse.json({ ok: false, error: "No orders were found for that phone number." }, { status: 404 });
+      return NextResponse.json({ ok: true, order: orders[0], orders, source: "supabase" });
     }
 
     const authError = await requireAdminRequest(request);

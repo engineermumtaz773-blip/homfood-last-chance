@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertSupabaseConfigured, upsertSupabaseCustomer } from "@/lib/supabase-server";
+import { assertSupabaseConfigured, upsertSupabaseAuthProfile, upsertSupabaseCustomer } from "@/lib/supabase-server";
 import { setCustomerSessionCookie } from "@/lib/customer-session";
 
 export const runtime = "nodejs";
@@ -48,6 +48,13 @@ export async function POST(request: NextRequest) {
       || email.split("@")[0];
     const avatarUrl = [metadata.avatar_url, metadata.picture]
       .find((value): value is string => typeof value === "string" && /^https:\/\//i.test(value)) || "";
+    await upsertSupabaseAuthProfile({
+      id: user.id,
+      email,
+      name,
+      avatarUrl,
+      metadata,
+    });
     const customer = await upsertSupabaseCustomer({
       email,
       name,

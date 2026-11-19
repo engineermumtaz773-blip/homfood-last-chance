@@ -11,9 +11,15 @@ const STATUS_CONFIG: Record<
   { label: string; bg: string; color: string; icon: string }
 > = {
   pending: { label: "Pending", bg: "#fef3c7", color: "#b45309", icon: "⏳" },
+  new: { label: "New", bg: "#fef3c7", color: "#b45309", icon: "⏳" },
+  confirmed: { label: "Confirmed", bg: "#dcfce7", color: "#15803d", icon: "✓" },
   preparing: { label: "Preparing", bg: "#dbeafe", color: "#1d4ed8", icon: "🍳" },
+  ready: { label: "Ready", bg: "#dbeafe", color: "#1d4ed8", icon: "✓" },
   out_for_delivery: { label: "Out for Delivery", bg: "#f3e8ff", color: "#7e22ce", icon: "🛵" },
+  delivering: { label: "Delivering", bg: "#f3e8ff", color: "#7e22ce", icon: "🛵" },
+  arriving: { label: "Arriving", bg: "#f3e8ff", color: "#7e22ce", icon: "🛵" },
   delivered: { label: "Delivered", bg: "#dcfce7", color: "#15803d", icon: "✓" },
+  completed: { label: "Completed", bg: "#dcfce7", color: "#15803d", icon: "✓" },
   cancelled: { label: "Cancelled", bg: "#fee2e2", color: "#b91c1c", icon: "✕" },
 };
 
@@ -125,10 +131,10 @@ export function AdminOrdersManager() {
 
   const stats = useMemo(() => {
     const total = orders.length;
-    const pending = orders.filter((o) => o.status === "pending").length;
-    const preparing = orders.filter((o) => o.status === "preparing").length;
-    const delivering = orders.filter((o) => o.status === "out_for_delivery").length;
-    const delivered = orders.filter((o) => o.status === "delivered").length;
+    const pending = orders.filter((o) => o.status === "pending" || o.status === "new" || o.status === "confirmed").length;
+    const preparing = orders.filter((o) => o.status === "preparing" || o.status === "ready").length;
+    const delivering = orders.filter((o) => o.status === "out_for_delivery" || o.status === "delivering" || o.status === "arriving").length;
+    const delivered = orders.filter((o) => o.status === "delivered" || o.status === "completed").length;
     const revenue = orders
       .filter((o) => o.status !== "cancelled")
       .reduce((sum, o) => sum + (o.total || 0), 0);
@@ -190,7 +196,7 @@ export function AdminOrdersManager() {
         }}
       >
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          {["all", "pending", "preparing", "out_for_delivery", "delivered", "cancelled"].map(
+          {["all", "pending", "new", "confirmed", "preparing", "ready", "out_for_delivery", "delivering", "arriving", "delivered", "completed", "cancelled"].map(
             (statusKey) => {
               const active = filterStatus === statusKey;
               return (

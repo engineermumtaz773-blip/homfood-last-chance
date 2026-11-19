@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     if (!session || session.exp <= Math.floor(Date.now() / 1000) || !session.verified || (!session.email && !session.phone)) {
       return NextResponse.json({ error: "A verified customer session is required." }, { status: 401 });
     }
-    const orders = (await getSupabaseOrders()).filter((order) =>
+    const orders = (await getSupabaseOrders()).filter((order) => !order.deletedAt).filter((order) =>
       session.email
         ? order.customerEmail?.toLowerCase() === session.email.toLowerCase()
         : order.customerPhone.replace(/\D/g, "").endsWith(session.phone!.replace(/\D/g, "").slice(-10))

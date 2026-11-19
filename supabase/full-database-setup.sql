@@ -63,8 +63,10 @@ create table if not exists public.categories (
   created_at timestamptz not null default now()
 );
 
+create sequence if not exists public.menu_items_id_seq;
+
 create table if not exists public.menu_items (
-  id bigint primary key,
+  id bigint primary key default nextval('public.menu_items_id_seq'),
   name text not null,
   description text not null default '',
   category text not null default 'Dinner',
@@ -79,17 +81,88 @@ create table if not exists public.menu_items (
   available boolean not null default true,
   featured boolean not null default false,
   sold_out boolean not null default false,
+  daily_stock_limit integer,
+  remaining_stock integer,
+  calories integer,
+  protein_g numeric,
+  carbs_g numeric,
+  fat_g numeric,
+  allergens text[] not null default array[]::text[],
+  addons_json jsonb not null default '[]'::jsonb,
   translations jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
+alter sequence public.menu_items_id_seq owned by public.menu_items.id;
+select setval('public.menu_items_id_seq', coalesce((select max(id) from public.menu_items), 0) + 1, false);
+alter table public.menu_items alter column id set default nextval('public.menu_items_id_seq');
 alter table public.menu_items add column if not exists categories jsonb not null default '[]'::jsonb;
+alter table public.menu_items add column if not exists image text not null default '🍲';
 alter table public.menu_items add column if not exists image_url text not null default '';
 alter table public.menu_items add column if not exists portions jsonb not null default '[]'::jsonb;
 alter table public.menu_items add column if not exists serving_size text;
 alter table public.menu_items add column if not exists dietary_tags jsonb not null default '[]'::jsonb;
+alter table public.menu_items add column if not exists available boolean not null default true;
+alter table public.menu_items add column if not exists featured boolean not null default false;
 alter table public.menu_items add column if not exists sold_out boolean not null default false;
+alter table public.menu_items add column if not exists daily_stock_limit integer;
+alter table public.menu_items add column if not exists remaining_stock integer;
+alter table public.menu_items add column if not exists calories integer;
+alter table public.menu_items add column if not exists protein_g numeric;
+alter table public.menu_items add column if not exists carbs_g numeric;
+alter table public.menu_items add column if not exists fat_g numeric;
+alter table public.menu_items add column if not exists allergens text[] not null default array[]::text[];
+alter table public.menu_items add column if not exists addons_json jsonb not null default '[]'::jsonb;
 alter table public.menu_items add column if not exists translations jsonb not null default '{}'::jsonb;
+alter table public.menu_items add column if not exists updated_at timestamptz not null default now();
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_updated_at_menu_items on public.menu_items;
+create trigger set_updated_at_menu_items
+before update on public.menu_items
+for each row execute function public.set_updated_at();
+
+create or replace function public.initialize_homefood_menu_stock()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.daily_stock_limit is null then
+    new.remaining_stock := null;
+  elsif tg_op = 'INSERT' then
+    new.remaining_stock := new.daily_stock_limit;
+  elsif new.daily_stock_limit is distinct from old.daily_stock_limit
+     or new.remaining_stock is null then
+    new.remaining_stock := new.daily_stock_limit;
+  end if;
+
+  if new.remaining_stock = 0 then
+    new.sold_out := true;
+    new.available := false;
+  elsif tg_op = 'UPDATE' and old.sold_out then
+    new.sold_out := false;
+    new.available := true;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists menu_items_initialize_homefood_stock on public.menu_items;
+create trigger menu_items_initialize_homefood_stock
+before insert or update of daily_stock_limit, remaining_stock on public.menu_items
+for each row execute function public.initialize_homefood_menu_stock();
 
 create table if not exists public.daily_deals (
   id bigint primary key,

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     .filter((o) => o.createdAt?.startsWith(monthStr))
     .reduce((sum, o) => sum + (o.total || 0), 0);
 
-  const pendingOrders = orders.filter((o) => o.status === "pending" || o.status === "preparing").length;
+  const pendingOrders = orders.filter((o) => o.status === "pending" || o.status === "new" || o.status === "confirmed" || o.status === "preparing").length;
   const cancelledToday = todaysOrders.filter((o) => o.status === "cancelled").length;
 
   const recentOrders = orders.slice(0, 10).map((o, idx) => ({

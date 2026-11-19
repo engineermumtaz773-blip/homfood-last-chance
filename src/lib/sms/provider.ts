@@ -11,7 +11,7 @@ export async function getSmsProvider(): Promise<SmsProvider> {
   const provider = process.env.SMS_PROVIDER;
   if (provider === "mock") {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("SMS_PROVIDER=mock is not permitted in production.");
+      throw new Error("SMS verification is not configured for production. Set SMS_PROVIDER=textbee or use Email OTP.");
     }
     return {
       async send({ recipient, message }) {
@@ -23,5 +23,5 @@ export async function getSmsProvider(): Promise<SmsProvider> {
     const { TextBeeSmsProvider } = await import("@/lib/sms/textbee");
     return new TextBeeSmsProvider();
   }
-  throw new Error("Set SMS_PROVIDER to textbee or mock.");
+  throw new Error("SMS verification is not configured. Set SMS_PROVIDER=textbee and configure TEXTBEE_API_KEY and TEXTBEE_DEVICE_ID.");
 }

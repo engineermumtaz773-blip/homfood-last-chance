@@ -61,8 +61,8 @@ export async function GET(request: NextRequest) {
     const analytics = {
       totalRevenue: completedSales.reduce((sum, order) => sum + order.total, 0),
       totalOrders: orders.length,
-      deliveredOrders: orders.filter((order) => order.status === "delivered").length,
-      pendingOrders: orders.filter((order) => order.status === "pending" || order.status === "preparing").length,
+      deliveredOrders: orders.filter((order) => order.status === "delivered" || order.status === "completed").length,
+      pendingOrders: orders.filter((order) => order.status === "pending" || order.status === "new" || order.status === "confirmed" || order.status === "preparing").length,
       cancelledOrders: orders.filter((order) => order.status === "cancelled").length,
       todaysRevenue: todaySales.reduce((sum, order) => sum + order.total, 0),
       todaysOrdersCount: todayOrders.length,

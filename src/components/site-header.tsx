@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import type { Dish } from "@/lib/data";
 import type { FormEvent } from "react";
 import { useEffect } from "react";
@@ -17,6 +17,17 @@ import { readCustomerProfile, CUSTOMER_AUTH_EVENT, type CustomerProfile } from "
 import { matchesDishSearch } from "@/lib/menu-search";
 
 const links = [["menu", "/menu"], ["deals", "/daily-deals"], ["track", "/track-order"]] as const;
+const footerLinks = [
+  ["Home", "/"],
+  ["Menu", "/menu"],
+  ["Track Order", "/track-order"],
+  ["Meal plans", "/subscriptions"],
+  ["Reservations", "/reservations"],
+  ["Help & FAQ", "/help"],
+  ["Your Profile", "/profile"],
+  ["About", "/about"],
+  ["Contact", "/contact"],
+] as const;
 const brandImage = "/image_6c70d8.jpg";
 
 export function SiteHeader() {
@@ -26,14 +37,25 @@ export function SiteHeader() {
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [pagesOpen, setPagesOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [currency, setCurrency] = useState("PKR");
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const pagesMenuRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { items } = useCart();
   const { t, locale, theme, setLocale, setTheme, localeNames, themeNames } = useSiteSettings();
   const count = items.reduce((total, item) => total + item.quantity, 0);
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [searchDishes, setSearchDishes] = useState<Dish[]>([]);
+
+  const closeHeaderMenus = useCallback(() => {
+    setSettingsOpen(false);
+    setPagesOpen(false);
+    setProfileOpen(false);
+    setMenuOpen(false);
+  }, []);
 
   useEffect(() => {
     const restorePreferences = window.setTimeout(() => {
@@ -51,6 +73,28 @@ export function SiteHeader() {
       window.removeEventListener(CUSTOMER_AUTH_EVENT, handler);
     };
   }, []);
+  useEffect(() => {
+    if (!settingsOpen && !pagesOpen && !profileOpen && !menuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (!settingsMenuRef.current?.contains(event.target)) setSettingsOpen(false);
+      if (!pagesMenuRef.current?.contains(event.target)) setPagesOpen(false);
+      if (!profileMenuRef.current?.contains(event.target)) setProfileOpen(false);
+      const target = event.target instanceof Element ? event.target : event.target.parentElement;
+      if (!target?.closest(".site-header nav") && !target?.closest(".menu-toggle")) {
+        setMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeHeaderMenus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [settingsOpen, pagesOpen, profileOpen, menuOpen, closeHeaderMenus]);
   useEffect(() => {
     fetch("/api/menu", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data: { dishes?: Dish[] } | null) => {
       if (data?.dishes) setSearchDishes(data.dishes);
@@ -113,11 +157,21 @@ export function SiteHeader() {
         {searchSuggestions.length > 0 && <div className="header-search-suggestions">{searchSuggestions.map((dish) => <button type="button" key={dish.id} onClick={() => { setQuery(dish.name); router.push(`/menu?search=${encodeURIComponent(dish.name)}`); }}>{dish.name}<small>{dish.category}</small></button>)}</div>}
       </form>
       <nav className={`header-links ${menuOpen ? "open" : ""}`}>
-        {links.map(([label, href]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)}>{t(label)}</Link>)}
-        <div className="settings-menu">
-          <button type="button" className="settings-trigger" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><span aria-hidden="true">⚙</span> Settings</button>
+        {links.map(([label, href]) => <Link key={href} href={href} onClick={closeHeaderMenus}>{t(label)}</Link>)}
+        <div className="header-pages-menu" ref={pagesMenuRef}>
+          <button type="button" className="header-pages-trigger" aria-expanded={pagesOpen} aria-controls="header-pages-popover" onClick={() => { setPagesOpen((open) => !open); setSettingsOpen(false); setProfileOpen(false); }}>
+            Explore <span aria-hidden="true">⌄</span>
+          </button>
           <AnimatePresence>
-            {settingsOpen && <motion.div className="settings-popover" initial={{ opacity: 0, y: -8, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: .98 }}>
+            {pagesOpen && <motion.nav id="header-pages-popover" className="header-pages-popover" aria-label="Footer navigation" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+              {footerLinks.map(([label, href]) => <Link key={href} href={href} onClick={closeHeaderMenus}>{label}</Link>)}
+            </motion.nav>}
+          </AnimatePresence>
+        </div>
+        <div className="settings-menu" ref={settingsMenuRef}>
+          <button type="button" className="settings-trigger" aria-expanded={settingsOpen} aria-controls="settings-popover" onClick={() => { setSettingsOpen((open) => !open); setPagesOpen(false); setProfileOpen(false); }}><span aria-hidden="true">⚙</span> Settings</button>
+          <AnimatePresence>
+            {settingsOpen && <motion.div id="settings-popover" className="settings-popover" initial={{ opacity: 0, y: -8, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: .98 }}>
               <strong>Preferences</strong>
               <label><span>{t("language")}</span><select aria-label={t("language")} value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>{Object.entries(localeNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
               <label><span>{t("theme")}</span><select aria-label={t("theme")} value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>{Object.entries(themeNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
@@ -151,7 +205,7 @@ export function SiteHeader() {
         </button>
         <AppInstallActions variant="compact" />
       </nav>
-      <div className="profile-menu">
+      <div className="profile-menu" ref={profileMenuRef}>
       <button
         className="profile-link"
         type="button"
@@ -163,7 +217,11 @@ export function SiteHeader() {
                 detail: { mode: "login", reason: "Sign in to access your profile, saved addresses, and live orders." },
               })
             );
-          } else setProfileOpen((open) => !open);
+          } else {
+            setProfileOpen((open) => !open);
+            setSettingsOpen(false);
+            setPagesOpen(false);
+          }
         }}
       >
         {customer?.avatarUrl ? (
@@ -195,7 +253,7 @@ export function SiteHeader() {
           />
         )}
       </button>
-      {customer?.emailVerified && profileOpen && <div className="profile-popover"><strong>{customer.name || "Welcome back"}</strong><Link href="/profile" onClick={() => setProfileOpen(false)}>Your profile</Link><Link href="/track-order" onClick={() => setProfileOpen(false)}>Order history</Link><button type="button" onClick={() => setProfileOpen(false)}>Close</button></div>}
+      {customer?.emailVerified && profileOpen && <div className="profile-popover"><strong>{customer.name || customer.email?.split("@")[0] || "Welcome back"}</strong><Link href="/profile" onClick={closeHeaderMenus}>Your profile</Link><Link href="/track-order" onClick={closeHeaderMenus}>Order history</Link><button type="button" onClick={closeHeaderMenus}>Close</button></div>}
       </div>
       <motion.button className="icon-button cart-trigger" type="button" aria-label={`${t("cart")}, ${count}`} aria-expanded={cartOpen} aria-controls="header-cart-drawer" onClick={() => setCartOpen((open) => !open)} whileHover={{ scale: 1.06 }} whileTap={{ scale: .92 }}>
         <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 8h14l-1 13H6L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>

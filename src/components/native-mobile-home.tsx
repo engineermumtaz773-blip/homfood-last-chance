@@ -764,6 +764,11 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                   status: "new",
                   created_at: demoOrder.placedAt,
                   updated_at: demoOrder.placedAt,
+                  items: [],
+                  subtotal: 0,
+                  discount: 0,
+                  deliveryFee: 0,
+                  paymentMethod: "Cash on Delivery",
                 });
                 setIsTrackingModalOpen(true);
               }}

@@ -27,7 +27,6 @@ export function CustomerAuthModal({
   initialMode = "signup",
   initialReason,
 }: CustomerAuthModalProps) {
-  const googleAuthEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === "true";
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [step, setStep] = useState<AuthStep>("method");
   const [name, setName] = useState("");
@@ -47,6 +46,7 @@ export function CustomerAuthModal({
   const [resendCountdown, setResendCountdown] = useState(0);
   const [otpExpiresInSeconds, setOtpExpiresInSeconds] = useState(600); // 10 minutes = 600s
   const [accountAlreadyExists, setAccountAlreadyExists] = useState(false);
+  const [smsUnavailable, setSmsUnavailable] = useState(false);
 
   const otpInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -65,6 +65,7 @@ export function CustomerAuthModal({
       setPhoneVerificationId("");
       setDevCode(null);
       setAccountAlreadyExists(false);
+      setSmsUnavailable(false);
       setOtpExpiresInSeconds(600);
       setBusy(false);
       setGoogleBusy(false);
@@ -155,10 +156,6 @@ export function CustomerAuthModal({
 
   // Real Google OAuth Handler
   const handleGoogleSignIn = async () => {
-    if (!googleAuthEnabled) {
-      setError("Google sign-in is unavailable. Please use email verification or phone OTP.");
-      return;
-    }
     setGoogleBusy(true);
     setError("");
     try {
@@ -280,6 +277,7 @@ export function CustomerAuthModal({
     setBusy(true);
     setError("");
     setMessage("");
+    setSmsUnavailable(false);
     try {
       const response = await fetch("/api/auth/phone/start", {
         method: "POST",
@@ -296,7 +294,9 @@ export function CustomerAuthModal({
       setMessage(`A 6-digit code was sent to ${phone}.`);
       window.setTimeout(() => otpInputRef.current?.focus(), 150);
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Could not send an SMS code.");
+      const errorMessage = sendError instanceof Error ? sendError.message : "Could not send an SMS code.";
+      setSmsUnavailable(/sms|textbee|phone verification database|too many codes/i.test(errorMessage));
+      setError(errorMessage);
     } finally {
       setBusy(false);
     }
@@ -701,6 +701,7 @@ export function CustomerAuthModal({
                           setSignupMethod(method);
                           setError("");
                           setMessage("");
+                          setSmsUnavailable(false);
                         }}
                         style={{
                           minHeight: 38,
@@ -719,7 +720,7 @@ export function CustomerAuthModal({
                 )}
 
                 {/* Real Google OAuth Button (Redirects to official Google accounts.google.com) */}
-                {googleAuthEnabled && (mode === "login" || signupMethod === "email") && <motion.button
+                {(mode === "login" || signupMethod === "email") && <motion.button
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={busy || googleBusy}
@@ -781,14 +782,12 @@ export function CustomerAuthModal({
                   <span>
                     {googleBusy
                       ? "Connecting to Google…"
-                      : mode === "signup"
-                      ? "Continue with Google"
-                      : "Sign in with Google"}
+                      : "Continue with Google"}
                   </span>
                 </motion.button>}
 
                 {/* Divider */}
-                {googleAuthEnabled && (mode === "login" || signupMethod === "email") && <div
+                {(mode === "login" || signupMethod === "email") && <div
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -845,6 +844,12 @@ export function CustomerAuthModal({
                     <button type="submit" disabled={busy} style={{ width: "100%", height: 42, border: 0, borderRadius: 10, background: "#173f2b", color: "#fff", fontSize: 13, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>
                       {busy ? "Sending code…" : "Send SMS code"}
                     </button>
+                    {smsUnavailable && <div style={{ marginTop: 12, textAlign: "center" }}>
+                      <p style={{ margin: "0 0 8px", color: "#9a3412", fontSize: 12 }}>SMS delivery is unavailable. You can continue with email verification.</p>
+                      <button type="button" onClick={() => { setSignupMethod("email"); setSmsUnavailable(false); setError(""); }} style={{ border: 0, background: "transparent", color: "#15803d", fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }}>
+                        Continue with Email OTP
+                      </button>
+                    </div>}
                   </form>
                 ) : <form onSubmit={handleEmailSubmit}>
                   {mode === "signup" && (

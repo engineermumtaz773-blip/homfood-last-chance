@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import { useCart } from "@/components/cart-provider";
 import { CUSTOMER_AUTH_EVENT, readCustomerProfile, saveCustomerProfile, saveOrderRequest, type CustomerProfile } from "@/lib/customer";
@@ -15,6 +15,8 @@ import { MCB_NATIVE_QR, RAAST_MERCHANT_IBAN, RAAST_MERCHANT_NAME, RAAST_REF_NUMB
 import { useKitchenAvailability } from "@/hooks/use-kitchen-availability";
 import type { StoreSettings } from "@/lib/store-db";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
+import type { LiveOrderStatus } from "@/lib/order-api";
+import { buildOrderWhatsAppMessage, getOrderWhatsAppNumber } from "@/lib/order-whatsapp";
 
 const paymentSessionDuration = 5 * 60 * 1000;
 const money = new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 });
@@ -48,11 +50,16 @@ export function CheckoutForm() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const raastStore = useRaastSessionStore();
   const raastSession = useSyncExternalStore(raastStore.subscribe, raastStore.getClientSnapshot, raastStore.getServerSnapshot);
-  const [secondsLeft, setSecondsLeft] = useState(0);
-  const [timerReady, setTimerReady] = useState(false);
-  const [ibanCopied, setIbanCopied] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "verification_pending" | "paid" | "rejected">("pending");
   const [slipUploadMessage, setSlipUploadMessage] = useState("");
+  const [slipUploadStatus, setSlipUploadStatus] = useState<"idle" | "uploading" | "uploaded" | "error">("idle");
+  const [slipFile, setSlipFile] = useState<File | null>(null);
+  const [uploadedSlipPath, setUploadedSlipPath] = useState("");
+  const [uploadedSlipName, setUploadedSlipName] = useState("");
+  const [isRemovingSlip, setIsRemovingSlip] = useState(false);
+  const [orderConfirmation, setOrderConfirmation] = useState<LiveOrderStatus | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
+  const slipPreviewUrl = useMemo(() => slipFile ? URL.createObjectURL(slipFile) : "", [slipFile]);
   const selectedZone = deliveryZones.find((zone) => zone.zone_name === deliveryArea);
   const subtotal = items.reduce((total, item) => total + item.price * item.quantity, 0);
   const discount = Math.min(subtotal, promoDiscount);
@@ -78,16 +85,8 @@ export function CheckoutForm() {
   }, [storeSettings]);
 
   useEffect(() => {
-    if (!raastSession) return;
-    const updateCountdown = () => {
-      setSecondsLeft(Math.max(0, Math.ceil((raastSession.expiresAt - Date.now()) / 1000)));
-      setTimerReady(true);
-    };
-    updateCountdown();
-    const interval = window.setInterval(updateCountdown, 1000);
-    return () => window.clearInterval(interval);
-  }, [raastSession]);
-
+    if (slipPreviewUrl) return () => URL.revokeObjectURL(slipPreviewUrl);
+  }, [slipPreviewUrl]);
   useEffect(() => {
     if (!raastSession) return;
     const openPaymentFrame = window.requestAnimationFrame(() => setPaymentModalOpen(true));
@@ -102,19 +101,24 @@ export function CheckoutForm() {
         const params = new URLSearchParams({ number: raastSession.orderNumber, phone: customerPhone });
         const response = await fetch(`/api/orders?${params}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Order status lookup failed (${response.status}).`);
-        const data = await response.json() as { order?: { paymentStatus?: string } };
+        const data = await response.json() as { order?: { paymentStatus?: string; paymentSlipUrl?: string; paymentSlipName?: string } };
         const value = data.order?.paymentStatus;
         if (active && (value === "pending" || value === "verification_pending" || value === "paid" || value === "rejected")) {
           setPaymentStatus(value);
+          setUploadedSlipPath(data.order?.paymentSlipUrl || "");
+          setUploadedSlipName(data.order?.paymentSlipName || "");
+          if (data.order?.paymentSlipUrl) setSlipUploadStatus("uploaded");
         }
       } catch (error) {
         console.error("Could not refresh payment status from Supabase.", error);
       }
     };
     void refreshPaymentStatus();
+    const interval = window.setInterval(() => void refreshPaymentStatus(), 3_500);
     window.addEventListener(REALTIME_SYNC_EVENT, refreshPaymentStatus);
     return () => {
       active = false;
+      window.clearInterval(interval);
       window.removeEventListener(REALTIME_SYNC_EVENT, refreshPaymentStatus);
     };
   }, [raastSession, customerPhone]);
@@ -123,23 +127,67 @@ export function CheckoutForm() {
     if (!raastSession) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
       setSlipUploadMessage("Choose a JPG, PNG, or WebP receipt under 5 MB.");
+      setSlipUploadStatus("error");
       return;
     }
+    setSlipFile(file);
+    setSlipUploadStatus("uploading");
     setSlipUploadMessage("Uploading receipt…");
     const form = new FormData();
     form.set("number", raastSession.orderNumber);
     form.set("phone", customerPhone);
     form.set("file", file);
-    const response = await fetch("/api/upload-slip", { method: "POST", body: form });
-    const data = await response.json() as { error?: string; order?: { paymentStatus?: string } };
-    if (!response.ok) throw new Error(data.error || "Payment receipt upload failed.");
-    setPaymentStatus(data.order?.paymentStatus === "verification_pending" ? "verification_pending" : "pending");
-    setSlipUploadMessage("Receipt uploaded. Payment is in Process while the kitchen verifies it.");
+    try {
+      const response = await fetch("/api/upload-slip", { method: "POST", body: form });
+      const data = await response.json().catch(() => null) as { error?: string; order?: { paymentStatus?: string; paymentSlipUrl?: string; paymentSlipName?: string } } | null;
+      if (!response.ok) throw new Error(data?.error || "Payment receipt upload failed.");
+      setPaymentStatus(data?.order?.paymentStatus === "verification_pending" ? "verification_pending" : "pending");
+      setUploadedSlipPath(data?.order?.paymentSlipUrl || "");
+      setUploadedSlipName(data?.order?.paymentSlipName || file.name);
+      setSlipUploadStatus("uploaded");
+      setSlipUploadMessage("Uploaded ✓ · Payment is awaiting merchant verification.");
+    } catch (error) {
+      setSlipUploadStatus("error");
+      setSlipUploadMessage(error instanceof Error ? error.message : "Payment receipt upload failed.");
+      throw error;
+    }
+  }
+
+  async function removePaymentSlip() {
+    if (!raastSession || isRemovingSlip) return;
+    setIsRemovingSlip(true);
+    try {
+      const query = new URLSearchParams({ number: raastSession.orderNumber, phone: customerPhone });
+      const response = await fetch(`/api/upload-slip?${query}`, { method: "DELETE" });
+      const data = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(data?.error || "Payment receipt could not be removed.");
+      setSlipFile(null);
+      setUploadedSlipPath("");
+      setUploadedSlipName("");
+      setPaymentStatus("pending");
+      setSlipUploadStatus("idle");
+      setSlipUploadMessage("Receipt removed. You can upload a replacement.");
+    } catch (error) {
+      setSlipUploadStatus("error");
+      setSlipUploadMessage(error instanceof Error ? error.message : "Payment receipt could not be removed.");
+    } finally {
+      setIsRemovingSlip(false);
+    }
+  }
+
+  async function copyWhatsAppMessage(message: string) {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopyMessage("Order message copied.");
+    } catch (error) {
+      console.error("Could not copy the WhatsApp order message.", error);
+      setCopyMessage("Copy was blocked. Select and copy the order details manually.");
+    }
   }
 
   async function downloadChallanPdf() {
     const challan = document.querySelector<HTMLElement>(".raast-print-challan");
-    if (!challan || !raastSession) return;
+    if (!challan) return;
     const previousStyle = challan.getAttribute("style");
     try {
       Object.assign(challan.style, { display: "block", position: "fixed", top: "0", left: "-10000px", width: "760px", zIndex: "-1", background: "#fff" });
@@ -151,7 +199,7 @@ export function CheckoutForm() {
       const width = canvas.width * ratio;
       const height = canvas.height * ratio;
       pdf.addImage(canvas.toDataURL("image/png"), "PNG", (pdf.internal.pageSize.getWidth() - width) / 2, margin, width, height);
-      pdf.save(`homefood-challan-${raastSession.orderNumber.replace(/[^a-z0-9-]/gi, "")}.pdf`);
+      pdf.save(`homefood-challan-${(raastSession?.orderNumber || "checkout").replace(/[^a-z0-9-]/gi, "")}.pdf`);
     } catch (error) {
       console.error("Could not generate the challan PDF.", error);
       setSubmitError(error instanceof Error ? error.message : "Could not generate the challan PDF.");
@@ -289,11 +337,9 @@ export function CheckoutForm() {
       return;
     }
     const notes = [String(formData.get("notes") ?? "").trim(), `Requested delivery: ${deliveryTime}`].filter(Boolean).join("\n");
-    const orderLines = items.map((item) => `- ${item.name} (${item.portion}) x${item.quantity}: Rs. ${item.price * item.quantity}${item.specialInstructions ? `\n  Kitchen note: ${item.specialInstructions}` : ""}`).join("\n");
-    let orderNumber: string;
-    let orderTotal: number;
+    let order: LiveOrderStatus;
     try {
-      const order = await createLiveOrder({
+      order = await createLiveOrder({
         name,
         phone,
         email: email || undefined,
@@ -317,8 +363,6 @@ export function CheckoutForm() {
           note: item.specialInstructions,
         })),
       });
-      orderNumber = order.number;
-      orderTotal = order.total;
     } catch (error) {
       console.error("Could not create the order in Supabase.", error);
       setSubmitError(error instanceof Error ? error.message : "The online order service could not confirm your request.");
@@ -326,8 +370,15 @@ export function CheckoutForm() {
       return;
     }
 
-    const paymentLabel = payment === "Digital Payment" ? "MCB Raast dynamic QR (exact amount encoded)" : payment;
-    const message = `Hi Home Made Food, my online order request ${orderNumber} was submitted:\n\n${orderLines}\n\nSubtotal: Rs. ${subtotal}${discount ? `\nPromo (${promoCode}): -Rs. ${discount}` : ""}\nDelivery: FREE\nTotal: Rs. ${orderTotal}\nPayment preference: ${paymentLabel}\nName: ${name}\nPhone: ${phone}\nArea: ${area}\nAddress: ${address}${notes ? `\nNotes: ${notes}` : ""}`;
+    const orderNumber = order.number;
+    const orderTotal = order.total;
+    const message = buildOrderWhatsAppMessage(order, storeSettings || undefined);
+    setOrderConfirmation(order);
+    try {
+      window.localStorage.setItem("hmf_recent_order", JSON.stringify({ number: orderNumber, phone }));
+    } catch (error) {
+      console.warn("The order was saved, but could not be remembered on this device.", error);
+    }
     {
       const currentProfile = readCustomerProfile();
       const previousAddresses = currentProfile?.addresses ?? [];
@@ -356,11 +407,12 @@ export function CheckoutForm() {
         orderNumber,
         amount: orderTotal,
         expiresAt,
-        whatsappMessage: `Hi Home Made Food, please verify my MCB Raast payment for order ${orderNumber} (PKR ${money.format(orderTotal)}). I will attach the bank receipt here.`,
+        whatsappMessage: message,
       });
+      setIsSubmitting(false);
       return;
     }
-    window.location.assign(whatsappUrl(message));
+    setIsSubmitting(false);
   }
 
   if (!items.length && !raastSession) return <div className="notice">{t("emptyCart")} <Link href="/menu" style={{ textDecoration: "underline" }}>{t("browseMenu")}</Link></div>;
@@ -375,6 +427,7 @@ export function CheckoutForm() {
     : customerProfile?.addresses[0] || "Delivery address will appear after checkout.";
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="checkout-grid">
       {kitchen && !kitchen.available && <div className="checkout-closed-notice" role="alert"><strong>Online orders are paused</strong><p>{kitchen.reason}</p><small>{kitchen.schedule}</small></div>}
       <AnimatePresence mode="wait" initial={false}>
@@ -382,7 +435,7 @@ export function CheckoutForm() {
         paymentModalOpen ? <motion.div key="raast-payment-backdrop" className="raast-payment-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <motion.section className="form-card raast-payment-card" role="dialog" aria-modal="true" aria-label="Raast payment QR" initial={{ opacity: 0, y: 18, scale: 0.92 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 14, scale: 0.94 }} transition={{ duration: 0.24, ease: "easeOut" }}>
           <button type="button" className="raast-modal-close" aria-label="Close payment details" onClick={() => setPaymentModalOpen(false)}>×</button>
-          <div className="voucher-minimal-qr-card"><QRCodeSVG value={generateEmvcoRaastQrString({ merchantName: RAAST_MERCHANT_NAME, ref: RAAST_REF_NUMBER, iban: RAAST_MERCHANT_IBAN, amount: raastSession.amount, city: "Bahawalpur", purpose: `Order ${raastSession.orderNumber}` })} size={260} level="M" includeMargin style={{ display: "block", maxWidth: "100%", height: "auto" }} /></div>
+          <div className="voucher-minimal-qr-card"><QRCodeSVG value={generateEmvcoRaastQrString({ merchantName: storeSettings?.payments.raastMerchantName || RAAST_MERCHANT_NAME, ref: storeSettings?.payments.raastRef || RAAST_REF_NUMBER, iban: storeSettings?.payments.bankIban || RAAST_MERCHANT_IBAN, amount: raastSession.amount, city: "Bahawalpur", purpose: `Order ${raastSession.orderNumber}` })} size={260} level="M" includeMargin style={{ display: "block", maxWidth: "100%", height: "auto" }} /></div>
         </motion.section>
         </motion.div> : <motion.section key="raast-payment-resume" className="form-card raast-payment-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <p className="raast-kicker">MCB · RAAST P2M</p><h2>{t("raastPending")}</h2>
@@ -413,7 +466,7 @@ export function CheckoutForm() {
       </motion.form>
       )}
       </AnimatePresence>
-      <aside className="summary-card checkout-summary-card">
+      <motion.aside className="summary-card checkout-summary-card" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.28 }}>
         <div className="checkout-section-heading"><span>03</span><div><p>YOUR ORDER</p><h2>{t("orderSummary")}</h2></div></div>
         <section className="checkout-customer-summary" aria-label="Customer and delivery details">
           {customerProfile?.avatarUrl && <img src={customerProfile.avatarUrl} alt="Customer profile" width={48} height={48} />}
@@ -422,37 +475,61 @@ export function CheckoutForm() {
         <div className="checkout-table-scroll">
           <table className="checkout-order-table">
             <thead><tr><th scope="col">Item</th><th scope="col">Qty</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
-            <tbody>{items.map((item) => <tr key={`${item.id}-${item.portion}-${item.specialInstructions ?? ""}`}>
+            <tbody>{items.map((item) => <motion.tr layout key={`${item.id}-${item.portion}-${item.specialInstructions ?? ""}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <td><strong>{item.name}</strong><small>{item.portion}{item.specialInstructions ? ` · ${item.specialInstructions}` : ""}</small></td>
               <td><span className="quantity-control checkout-quantity"><button type="button" aria-label={`Decrease ${item.name} quantity`} disabled={Boolean(raastSession)} onClick={() => updateQuantity(item.id, item.portion, item.quantity - 1, item.specialInstructions)}>−</button><span>{item.quantity}</span><button type="button" aria-label={`Increase ${item.name} quantity`} disabled={Boolean(raastSession)} onClick={() => updateQuantity(item.id, item.portion, item.quantity + 1, item.specialInstructions)}>＋</button></span></td>
               <td className="checkout-table-amount">Rs. {money.format(item.price * item.quantity)}</td>
               <td><span className={`checkout-status-pill ${raastSession ? "is-pending" : ""}`}>{raastSession ? "Pending" : "In cart"}</span></td>
               <td>{!raastSession ? <button type="button" onClick={() => removeItem(item.id, item.portion, item.specialInstructions)} className="remove-cart-item">Remove</button> : <span className="checkout-table-note">{item.specialInstructions || "—"}</span>}</td>
-            </tr>)}
-              <tr className="checkout-payment-row"><td data-label="Title"><strong>Payment method</strong><small>Raast transfer</small></td><td colSpan={2} className="checkout-table-amount" data-label="Amount">PKR {money.format(raastSession?.amount ?? total)}</td><td data-label="Status"><span className={`checkout-status-pill ${paymentStatus === "paid" ? "is-paid" : paymentStatus === "verification_pending" ? "is-process" : raastSession ? "is-pending" : ""}`}>{paymentStatus === "paid" ? "Paid" : paymentStatus === "verification_pending" ? "Process" : raastSession ? "Pending" : payment === "Digital Payment" ? "Selected" : "Not selected"}</span></td><td data-label="Action"><div className="checkout-payment-actions"><button type="button" className="checkout-raast-select" onClick={() => raastSession ? setPaymentModalOpen(true) : setPayment("Digital Payment")}>{raastSession ? "RAAST QR (Scan to Pay)" : payment === "Digital Payment" ? "Raast selected" : "RAAST QR (Scan to Pay)"}</button><label className={`checkout-raast-select ${!raastSession ? "is-disabled" : ""}`}>Upload Transaction Slip<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!raastSession} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPaymentSlip(file).catch((error: unknown) => setSlipUploadMessage(error instanceof Error ? error.message : "Receipt upload failed.")); event.currentTarget.value = ""; }} /></label><button type="button" className="checkout-raast-select" disabled={!raastSession} onClick={() => void downloadChallanPdf()}>Download Challan</button></div>{slipUploadMessage && <small className="checkout-slip-status" role="status">{slipUploadMessage}</small>}</td></tr>
+            </motion.tr>)}
+              <tr className="checkout-payment-row"><td data-label="Title"><strong>Payment method</strong><small>{storeSettings?.payments.bankName || "MCB Raast transfer"}</small></td><td colSpan={2} className="checkout-table-amount" data-label="Amount">PKR {money.format(raastSession?.amount ?? total)}</td><td data-label="Status"><span className={`checkout-status-pill ${paymentStatus === "paid" ? "is-paid" : paymentStatus === "verification_pending" ? "is-process" : raastSession ? "is-pending" : ""}`}>{paymentStatus === "paid" ? "Paid" : paymentStatus === "verification_pending" ? "Process" : raastSession ? "Pending" : payment === "Digital Payment" ? "Selected" : "Not selected"}</span></td><td data-label="Action"><div className="checkout-payment-actions"><button type="button" className="checkout-raast-select" onClick={() => raastSession ? setPaymentModalOpen(true) : setPayment("Digital Payment")}>{raastSession ? "RAAST QR (Scan to Pay)" : payment === "Digital Payment" ? "Raast selected" : "RAAST QR (Scan to Pay)"}</button><button type="button" className="checkout-raast-select" disabled={!raastSession && payment !== "Digital Payment"} onClick={() => void downloadChallanPdf()}>Download Challan</button></div></td></tr>
             </tbody>
           </table>
         </div>
+        {(payment === "Digital Payment" || raastSession) && <motion.section className="checkout-challan-card" layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} aria-label="Payment challan and transaction slip">
+          <div className="checkout-challan-heading"><div><span className="raast-kicker">MCB · RAAST PAYMENT</span><h3>Payment challan / transaction slip</h3></div><span className="checkout-challan-reference">{storeSettings?.payments.raastMerchantName || RAAST_MERCHANT_NAME} · Ref {storeSettings?.payments.raastRef || RAAST_REF_NUMBER}</span></div>
+          <p>Payable amount <strong>PKR {money.format(raastSession?.amount ?? total)}</strong>. Use the exact amount and upload your bank receipt so the kitchen can verify the transfer.</p>
+          {(storeSettings?.payments.bankName || storeSettings?.payments.bankIban) && <p className="checkout-challan-bank">{[storeSettings.payments.bankName, storeSettings.payments.bankAccountTitle, storeSettings.payments.bankIban].filter(Boolean).join(" · ")}</p>}
+          {storeSettings?.payments.paymentInstructions && <p>{storeSettings.payments.paymentInstructions}</p>}
+          <div className="checkout-challan-actions">
+            <label className={`checkout-raast-select checkout-upload-button ${!raastSession || slipUploadStatus === "uploading" ? "is-disabled" : ""}`}>
+              {slipUploadStatus === "uploading" ? "Uploading…" : uploadedSlipPath ? "Replace Transaction Slip" : "Upload Transaction Slip"}
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!raastSession || slipUploadStatus === "uploading"} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPaymentSlip(file).catch(() => undefined); event.currentTarget.value = ""; }} />
+            </label>
+            <button type="button" className="checkout-raast-select" onClick={() => void downloadChallanPdf()}>Download / View Challan</button>
+            {(uploadedSlipPath || slipFile) && <button type="button" className="checkout-raast-select checkout-remove-slip" disabled={!raastSession || isRemovingSlip} onClick={() => void removePaymentSlip()}>{isRemovingSlip ? "Removing…" : "Remove Slip"}</button>}
+          </div>
+          {(slipFile || uploadedSlipPath || slipUploadMessage) && <motion.div className="checkout-slip-preview" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            {(slipPreviewUrl || (uploadedSlipPath && raastSession ? `/api/orders/slip?${new URLSearchParams({ number: raastSession.orderNumber, phone: customerPhone })}` : "")) && <img src={slipPreviewUrl || `/api/orders/slip?${new URLSearchParams({ number: raastSession?.orderNumber || "", phone: customerPhone })}`} alt="Payment receipt preview" />}
+            <div><strong>{slipFile?.name || uploadedSlipName || "Transaction receipt"}</strong>{slipFile && <small>{(slipFile.size / 1024 / 1024).toFixed(2)} MB</small>}<span className={`checkout-slip-state ${slipUploadStatus}`} role="status">{slipUploadStatus === "uploading" ? "Uploading…" : slipUploadStatus === "uploaded" ? "Uploaded ✓" : slipUploadStatus === "error" ? slipUploadMessage : slipUploadMessage || "Ready to upload"}</span></div>
+          </motion.div>}
+        </motion.section>}
+        {orderConfirmation && <motion.section className="checkout-order-confirmation" layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} role="status">
+          <strong>Order {orderConfirmation.number} placed</strong><span>Keep this number to follow live kitchen updates.</span>
+          <div className="checkout-challan-actions"><a className="checkout-raast-select" href={whatsappUrl(buildOrderWhatsAppMessage(orderConfirmation, storeSettings || undefined), getOrderWhatsAppNumber(storeSettings || undefined))} target="_blank" rel="noreferrer">Confirm Order on WhatsApp</a><button type="button" className="checkout-raast-select" onClick={() => void copyWhatsAppMessage(buildOrderWhatsAppMessage(orderConfirmation, storeSettings || undefined))}>Copy order message</button><Link href={`/track-order?order=${encodeURIComponent(orderConfirmation.number)}&phone=${encodeURIComponent(customerPhone)}`}>Track order</Link></div>
+          {copyMessage && <small role="status">{copyMessage}</small>}
+        </motion.section>}
         <div className="summary-line"><span>{t("subtotal")}</span><strong>Rs. {subtotal}</strong></div>
         <div className="promo-entry"><label htmlFor="promo-code">{t("promoCode")}</label><div><input id="promo-code" value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder={t("enterCode")} /><button type="button" onClick={applyPromo}>{t("apply")}</button></div>{promoMessage && <small className={promoCode ? "promo-success" : "promo-error"} role="status">{promoMessage}</small>}</div>
         {discount > 0 && <div className="summary-line"><span>Discount ({promoCode})</span><strong>− Rs. {discount}</strong></div>}
         <div className="summary-line"><span>Delivery</span><strong>{deliveryFee ? `Rs. ${money.format(deliveryFee)}` : "FREE"}</strong></div>
         <div className="summary-line summary-total"><span>Total</span><strong>{raastSession ? `PKR ${money.format(raastSession.amount)}` : `Rs. ${total}`}</strong></div>
-      </aside>
-      {raastSession && <section className="raast-print-challan" aria-label="Printable three QR payment challan">
-        <header><div><p className="raast-kicker">HOME MADE FOOD · PAYMENT CHALLAN</p><h2>{raastSession.orderNumber}</h2></div><strong>PKR {money.format(raastSession.amount)}</strong></header>
+      </motion.aside>
+      {(raastSession || payment === "Digital Payment") && <section className="raast-print-challan" aria-label="Printable three QR payment challan">
+        <header><div><p className="raast-kicker">{storeSettings?.restaurant.name || "HOME MADE FOOD"} · PAYMENT CHALLAN</p><h2>{raastSession?.orderNumber || "Checkout Payment"}</h2></div><strong>PKR {money.format(raastSession?.amount ?? total)}</strong></header>
         <div className="raast-challan-customer">
           {customerProfile?.avatarUrl && <img src={customerProfile.avatarUrl} alt="Customer profile" width={52} height={52} />}
           <div><strong>{customerName || customerProfile?.name || "Customer"}</strong><span>{customerEmail || customerProfile?.email || "Email not provided"} · {customerPhone || customerProfile?.phone || "Phone not provided"}</span><span>{deliverySummary}</span></div>
         </div>
-        <div className="raast-challan-items">{items.map((item) => <div key={`${item.id}-${item.portion}-${item.specialInstructions ?? ""}`}><span>{item.name} · {item.portion} × {item.quantity}</span><strong>PKR {money.format(item.price * item.quantity)}</strong></div>)}<div className="raast-challan-total"><span>Payable total</span><strong>PKR {money.format(raastSession.amount)}</strong></div></div>
+        <div className="raast-challan-items">{items.map((item) => <div key={`${item.id}-${item.portion}-${item.specialInstructions ?? ""}`}><span>{item.name} · {item.portion} × {item.quantity}</span><strong>PKR {money.format(item.price * item.quantity)}</strong></div>)}<div className="raast-challan-total"><span>Payable total</span><strong>PKR {money.format(raastSession?.amount ?? total)}</strong></div></div>
         <div className="raast-challan-qrs">
-          <div><QRCodeSVG value={generateEmvcoRaastQrString({ merchantName: RAAST_MERCHANT_NAME, ref: RAAST_REF_NUMBER, iban: RAAST_MERCHANT_IBAN, amount: raastSession.amount, city: "Bahawalpur", purpose: `Order ${raastSession.orderNumber}` })} size={112} /><strong>QR 1 · Auto-pay total</strong></div>
+          <div><QRCodeSVG value={generateEmvcoRaastQrString({ merchantName: storeSettings?.payments.raastMerchantName || RAAST_MERCHANT_NAME, ref: storeSettings?.payments.raastRef || RAAST_REF_NUMBER, iban: storeSettings?.payments.bankIban || RAAST_MERCHANT_IBAN, amount: raastSession?.amount ?? total, city: "Bahawalpur", purpose: `Order ${raastSession?.orderNumber || "Checkout"}` })} size={112} /><strong>QR 1 · Auto-pay total</strong></div>
           <div><QRCodeSVG value={MCB_NATIVE_QR} size={112} /><strong>QR 2 · MCB Raast</strong><span>{RAAST_MERCHANT_NAME} · Ref {RAAST_REF_NUMBER}</span></div>
           <div><QRCodeSVG value={restaurantQr} size={112} /><strong>QR 3 · Restaurant info</strong><span>Contact and social channels</span></div>
         </div>
-        <p className="raast-challan-iban">IBAN: {RAAST_MERCHANT_IBAN}</p>
+        <p className="raast-challan-iban">IBAN: {storeSettings?.payments.bankIban || RAAST_MERCHANT_IBAN}</p>
       </section>}
     </div>
+    </MotionConfig>
   );
 }

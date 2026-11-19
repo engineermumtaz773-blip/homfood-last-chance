@@ -88,7 +88,7 @@ export type DbOrderItem = {
   specialInstructions?: string;
 };
 
-export type DbOrderStatus = "pending" | "preparing" | "out_for_delivery" | "delivered" | "cancelled";
+export type DbOrderStatus = "pending" | "new" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "delivering" | "arriving" | "delivered" | "completed" | "cancelled";
 export type DbPaymentStatus = "pending" | "verification_pending" | "paid" | "rejected";
 
 export type DbOrder = {
@@ -113,6 +113,8 @@ export type DbOrder = {
   customerNote?: string;
   adminNotes?: string;
   adminMediaUrl?: string;
+  cancellationReason?: string;
+  deletedAt?: string;
   createdAt: string;
   updatedAt: string;
   riderName?: string;

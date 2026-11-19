@@ -2,28 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { POST as uploadSlip } from "../../upload-slip/route";
 import { getSupabaseOrder } from "@/lib/supabase-server";
 import { requireAdminRequest } from "@/lib/admin-request";
+import { getPaymentSlipStoragePath } from "@/lib/payment-slip-path";
 
 export const runtime = "nodejs";
-
-function getPaymentSlipPath(value: string, supabaseUrl: string) {
-  const publicPrefix = "/storage/v1/object/public/payment-slips/";
-  const signedPrefix = "/storage/v1/object/sign/payment-slips/";
-  try {
-    const parsed = new URL(value);
-    if (parsed.origin !== new URL(supabaseUrl).origin) return null;
-    const prefix = parsed.pathname.startsWith(publicPrefix) ? publicPrefix
-      : parsed.pathname.startsWith(signedPrefix) ? signedPrefix
-      : null;
-    if (!prefix) return null;
-    value = decodeURIComponent(parsed.pathname.slice(prefix.length));
-  } catch {
-    // New uploads store the private bucket's relative object path.
-  }
-
-  const segments = value.split("/");
-  if (!segments.length || segments.some((segment) => !segment || segment === "." || segment === "..")) return null;
-  return segments.map(encodeURIComponent).join("/");
-}
 
 export async function GET(request: NextRequest) {
   const authError = await requireAdminRequest(request);
@@ -41,7 +22,7 @@ export async function GET(request: NextRequest) {
   try {
     const order = await getSupabaseOrder(number);
     if (!order?.paymentSlipUrl) return NextResponse.json({ error: "Payment receipt not found." }, { status: 404 });
-    const path = getPaymentSlipPath(order.paymentSlipUrl, supabaseUrl);
+    const path = getPaymentSlipStoragePath(order.paymentSlipUrl, supabaseUrl);
     if (!path) return NextResponse.json({ error: "Payment receipt path is invalid." }, { status: 404 });
 
     const response = await fetch(

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { readCustomerProfile, loadCustomerOrders, type OrderRequest } from "@/lib/customer";
 import { whatsappUrl } from "@/lib/data";
 import { getLiveOrderStatus, type LiveOrderStatus } from "@/lib/order-api";
@@ -10,14 +10,17 @@ import type { OrderMessage } from "@/lib/supabase-server";
 import { useSiteSettings } from "@/components/site-settings";
 import { broadcastRealtimeEvent, playAlertChime } from "@/lib/realtime-bus";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
+import type { StoreSettings } from "@/lib/store-db";
+import { buildOrderWhatsAppMessage, getOrderWhatsAppNumber } from "@/lib/order-whatsapp";
 
 const stageByStatus: Record<LiveOrderStatus["status"], number> = {
   new: 0,
-  preparing: 1,
-  ready: 2,
-  delivering: 2,
+  confirmed: 1,
+  preparing: 2,
+  ready: 3,
+  delivering: 3,
   arriving: 3,
-  completed: 3,
+  completed: 4,
   cancelled: -1,
 };
 
@@ -27,6 +30,12 @@ const STAGE_DETAILS = [
     desc: "Received by Home Made Food kitchen",
     icon: "📝",
     subtext: "Order details verified & queued",
+  },
+  {
+    title: "Order Confirmed",
+    desc: "Confirmed by the Home Made Food kitchen",
+    icon: "✓",
+    subtext: "Your order is accepted",
   },
   {
     title: "Cooking & Preparing",
@@ -60,32 +69,15 @@ export function OrderTracking() {
   const [messages, setMessages] = useState<OrderMessage[]>([]);
   const [chatText, setChatText] = useState("");
   const [chatSending, setChatSending] = useState(false);
-  const [cancellationSecondsLeft, setCancellationSecondsLeft] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [cancelReason, setCancelReason] = useState("Placed by mistake");
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonOther, setCancelReasonOther] = useState("");
   const [customerNoteDraft, setCustomerNoteDraft] = useState("");
   const [savingCustomerNote, setSavingCustomerNote] = useState(false);
-
-  // Calculate 2-minute cancellation timer for active order
-  useEffect(() => {
-    if (!liveOrder || liveOrder.status === "cancelled" || liveOrder.status === "completed" || liveOrder.status === "arriving") {
-      const frame = window.requestAnimationFrame(() => setCancellationSecondsLeft(null));
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    const createdTime = new Date(liveOrder.created_at || liveOrder.updated_at || Date.now()).getTime();
-
-    const updateCountdown = () => {
-      const elapsedSeconds = Math.floor((Date.now() - createdTime) / 1000);
-      const remaining = Math.max(0, 120 - elapsedSeconds);
-      setCancellationSecondsLeft(remaining);
-    };
-
-    updateCountdown();
-    const timer = window.setInterval(updateCountdown, 1000);
-    return () => window.clearInterval(timer);
-  }, [liveOrder]);
+  const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
+  const [copyMessage, setCopyMessage] = useState("");
+  const canCancel = liveOrder?.status === "new" || liveOrder?.status === "confirmed";
 
   async function handleCancelOrder() {
     if (!liveOrder || cancelling) return;
@@ -98,12 +90,12 @@ export function OrderTracking() {
         body: JSON.stringify({
           number: liveOrder.number,
           phone: lookupTarget?.phone || phone,
-          reason: cancelReason,
+          reason: cancelReason === "Other" ? cancelReasonOther : cancelReason,
         }),
       });
-      const data = await res.json();
+      const data = await res.json() as { ok?: boolean; error?: string; order?: { status?: string; cancellationReason?: string } };
       if (res.ok && data.ok) {
-        setLiveOrder((prev) => (prev ? { ...prev, status: "cancelled" } : null));
+        setLiveOrder((prev) => (prev ? { ...prev, status: "cancelled", cancellationReason: data.order?.cancellationReason || (cancelReason === "Other" ? cancelReasonOther : cancelReason) || "Customer requested cancellation" } : null));
         setShowCancelConfirm(false);
         playAlertChime("alert");
         broadcastRealtimeEvent({
@@ -123,30 +115,46 @@ export function OrderTracking() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const queryNumber = params.get("id") || params.get("number");
-    if (queryNumber) {
+    const queryNumber = params.get("order") || params.get("id") || params.get("number") || "";
+    const queryPhone = params.get("phone") || "";
+    if (queryNumber || queryPhone) {
       const frame = window.requestAnimationFrame(() => {
         setOrderNumber(queryNumber);
-        setLookupTarget({ number: queryNumber, phone: params.get("phone") || "" });
+        setPhone(queryPhone);
+        setLookupTarget({ number: queryNumber, phone: queryPhone });
       });
       return () => window.cancelAnimationFrame(frame);
     }
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hasDeepLink = Boolean(params.get("order") || params.get("id") || params.get("number") || params.get("phone"));
+    let hasRecentOrder = false;
+    try {
+      hasRecentOrder = Boolean(window.localStorage.getItem("hmf_recent_order"));
+    } catch (error) {
+      console.warn("Could not check the recent order in local storage.", error);
+    }
     const frame = window.requestAnimationFrame(() => {
-      const savedOrders = [] as OrderRequest[];
       const savedPhone = readCustomerProfile()?.phone ?? "";
-      setOrders(savedOrders);
-      setPhone(savedPhone);
-      if (savedOrders[0]) {
-        setOrderNumber(savedOrders[0].number);
-        setLookupTarget({ number: savedOrders[0].number, phone: savedPhone });
+      if (savedPhone) setPhone((current) => current || savedPhone);
+      if (!hasDeepLink) {
+        try {
+          const recent = JSON.parse(window.localStorage.getItem("hmf_recent_order") || "null") as { number?: string; phone?: string } | null;
+          if (recent?.number) {
+            setOrderNumber(recent.number);
+            setPhone(recent.phone || savedPhone);
+            setLookupTarget({ number: recent.number, phone: recent.phone || savedPhone });
+          }
+        } catch (error) {
+          console.warn("Could not read the recent order from local storage.", error);
+        }
       }
     });
     void loadCustomerOrders().then((customerOrders) => {
       setOrders(customerOrders);
-      if (customerOrders[0]) {
+      if (!hasDeepLink && !hasRecentOrder && customerOrders[0]) {
         const customerPhone = readCustomerProfile()?.phone ?? "";
         setPhone(customerPhone);
         setOrderNumber(customerOrders[0].number);
@@ -156,6 +164,16 @@ export function OrderTracking() {
       if (error instanceof Error && !error.message.includes("401")) console.error("Could not load orders from Supabase.", error);
     });
     return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/settings", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error(`Store settings request failed (${response.status}).`);
+      const data = await response.json() as { settings?: StoreSettings };
+      if (active && data.settings) setStoreSettings(data.settings);
+    }).catch((error: unknown) => console.error("Could not load tracking store settings.", error));
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -232,6 +250,16 @@ export function OrderTracking() {
     }
   }
 
+  async function copyOrderMessage() {
+    try {
+      await navigator.clipboard.writeText(orderWhatsAppMessage);
+      setCopyMessage("Order message copied.");
+    } catch (error) {
+      console.error("Could not copy the WhatsApp order message.", error);
+      setCopyMessage("Copy was blocked. Try the WhatsApp link instead.");
+    }
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = chatText.trim();
@@ -266,7 +294,10 @@ export function OrderTracking() {
     event.preventDefault();
     const number = orderNumber.trim().toUpperCase();
     const normalizedPhone = phone.trim();
-    if (!number) return;
+    if (!number && !normalizedPhone) {
+      setLookupError("Enter an order number or the phone number used at checkout.");
+      return;
+    }
     setLookupError("");
     setLookupTarget({ number, phone: normalizedPhone });
   }
@@ -279,8 +310,10 @@ export function OrderTracking() {
   const orderStatus = liveOrder?.status;
   const activeStage = orderStatus !== undefined ? stageByStatus[orderStatus] : orders.length ? 0 : 0;
   const isCancelled = orderStatus === "cancelled";
+  const orderWhatsAppMessage = liveOrder ? buildOrderWhatsAppMessage(liveOrder, storeSettings || undefined) : "";
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="tracking-layout" style={{ maxWidth: "1140px", margin: "0 auto" }}>
       {/* Main Tracking Card */}
       <motion.section
@@ -401,79 +434,45 @@ export function OrderTracking() {
                 })}
               </div>
               <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: liveOrder.paymentStatus === "paid" ? "#15803d" : "#b45309" }}>
-                Payment: {(liveOrder.paymentStatus || "pending").replace("_", " ")}
+                Payment: {liveOrder.paymentMethod} · {(liveOrder.paymentStatus || "pending").replace("_", " ")}
               </div>
+              <div className="tracking-order-summary">
+                <strong>Order summary</strong>
+                {liveOrder.items.map((item, index) => <div key={`${item.id}-${item.portion}-${index}`}><span>{item.name} · {item.portion} × {item.quantity}</span><b>Rs. {(item.price * item.quantity).toLocaleString("en-PK")}</b></div>)}
+                <div><span>Subtotal</span><b>Rs. {liveOrder.subtotal.toLocaleString("en-PK")}</b></div>
+                {liveOrder.discount > 0 && <div><span>Discount</span><b>− Rs. {liveOrder.discount.toLocaleString("en-PK")}</b></div>}
+                <div><span>Delivery</span><b>Rs. {liveOrder.deliveryFee.toLocaleString("en-PK")}</b></div>
+                <div className="tracking-order-total"><span>Total</span><b>Rs. {liveOrder.total.toLocaleString("en-PK")}</b></div>
+                <small>{liveOrder.address}{liveOrder.area ? `, ${liveOrder.area}` : ""}</small>
+              </div>
+              {liveOrder.paymentSlipUrl && lookupTarget && <a className="tracking-payment-slip" href={`/api/orders/slip?${new URLSearchParams({ number: liveOrder.number, phone: lookupTarget.phone })}`} target="_blank" rel="noreferrer">View uploaded payment slip · {liveOrder.paymentSlipName || "Receipt"}</a>}
+              <p className="tracking-rider-info">Rider: <strong>{liveOrder.riderName || "Assignment pending"}</strong>{liveOrder.riderPhone && <> · <a href={`tel:${liveOrder.riderPhone}`}>{liveOrder.riderPhone}</a></>}{liveOrder.estimatedDelivery && <> · Estimated delivery: {liveOrder.estimatedDelivery}</>}</p>
+              {isCancelled && <p className="tracking-cancelled-note">This order has been cancelled{liveOrder.cancellationReason ? `: ${liveOrder.cancellationReason}` : "."}</p>}
               {liveOrder.adminNotes && <p style={{ margin: "10px 0 0", color: "#334155", fontSize: 12 }}>Kitchen note: {liveOrder.adminNotes}</p>}
               {liveOrder.adminMediaUrl && <video controls playsInline preload="metadata" src={liveOrder.adminMediaUrl} style={{ display: "block", width: "min(100%, 480px)", maxHeight: 280, marginTop: 10, borderRadius: 12, background: "#111" }}>Your browser does not support video playback.</video>}
+              <div className="tracking-whatsapp-actions">
+                <a href={whatsappUrl(orderWhatsAppMessage, getOrderWhatsAppNumber(storeSettings || undefined))} target="_blank" rel="noreferrer">Confirm / discuss this order on WhatsApp</a>
+                <button type="button" onClick={() => void copyOrderMessage()}>Copy order message</button>
+                {copyMessage && <small role="status">{copyMessage}</small>}
+              </div>
               <form onSubmit={saveCustomerNote} style={{ display: "grid", gap: 8, marginTop: 12 }}>
                 <label htmlFor="delivery-note" style={{ fontSize: 12, fontWeight: 700 }}>Delivery or cooking note</label>
                 <textarea id="delivery-note" value={customerNoteDraft} maxLength={500} onChange={(event) => setCustomerNoteDraft(event.target.value)} placeholder="Add a note for the kitchen or delivery team" style={{ width: "100%", minHeight: 72, resize: "vertical", padding: 10, border: "1px solid #d8e2dc", borderRadius: 10, font: "inherit" }} />
                 <button type="submit" disabled={savingCustomerNote} style={{ justifySelf: "start", padding: "8px 12px", border: 0, borderRadius: 8, background: "#176b47", color: "white", fontWeight: 700 }}>{savingCustomerNote ? "Saving…" : "Save note"}</button>
               </form>
 
-              {/* 2-Minute Order Cancellation Action */}
-              {!isCancelled && cancellationSecondsLeft !== null && cancellationSecondsLeft > 0 && (
-                <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.1)" }}>
-                  {!showCancelConfirm ? (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <span style={{ animation: "pulse 1.2s infinite", color: "#d97706", fontSize: "14px" }}>⏱️</span>
-                        <span style={{ fontSize: "12px", color: "#475569" }}>
-                          Cancel window active: <strong>{Math.floor(cancellationSecondsLeft / 60)}:{(cancellationSecondsLeft % 60).toString().padStart(2, "0")}</strong>
-                        </span>
-                      </div>
-                      <motion.button
-                        type="button"
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setShowCancelConfirm(true)}
-                        style={{
-                          padding: "6px 14px",
-                          borderRadius: "8px",
-                          background: "#fef2f2",
-                          border: "1px solid #fecaca",
-                          color: "#dc2626",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Cancel Order
-                      </motion.button>
-                    </div>
-                  ) : (
-                    <div style={{ background: "#fff", padding: "12px", borderRadius: "10px", border: "1px solid #fecaca", display: "grid", gap: "8px", marginTop: "6px" }}>
-                      <strong style={{ fontSize: "13px", color: "#991b1b" }}>Confirm Order Cancellation?</strong>
-                      <select
-                        value={cancelReason}
-                        onChange={(e) => setCancelReason(e.target.value)}
-                        style={{ padding: "6px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
-                      >
-                        <option value="Placed by mistake">Placed by mistake</option>
-                        <option value="Need to change delivery address">Need to change delivery address</option>
-                        <option value="Duplicate order placed">Duplicate order placed</option>
-                        <option value="Delivery time too long">Delivery time too long</option>
-                      </select>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                          type="button"
-                          onClick={() => void handleCancelOrder()}
-                          disabled={cancelling}
-                          style={{ padding: "6px 12px", borderRadius: "6px", background: "#dc2626", color: "#fff", border: "none", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}
-                        >
-                          {cancelling ? "Cancelling..." : "Yes, Cancel Order"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCancelConfirm(false)}
-                          style={{ padding: "6px 12px", borderRadius: "6px", background: "#f1f5f9", color: "#475569", border: "none", fontSize: "12px", cursor: "pointer" }}
-                        >
-                          Keep Order
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {canCancel && <div className="tracking-cancel-area"><motion.button type="button" whileTap={{ scale: 0.98 }} onClick={() => setShowCancelConfirm(true)}>Cancel Order</motion.button></div>}
+              {liveOrder.status === "preparing" || liveOrder.status === "ready" || liveOrder.status === "delivering" || liveOrder.status === "arriving" || liveOrder.status === "completed" ? <p className="tracking-cancel-locked">Cancellation is locked because preparation or delivery has started.</p> : null}
+              <AnimatePresence>
+                {showCancelConfirm && canCancel && <motion.div className="tracking-cancel-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setShowCancelConfirm(false); }}>
+                  <motion.section className="tracking-cancel-dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-order-title" initial={{ opacity: 0, scale: 0.94, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ type: "spring", stiffness: 280, damping: 24 }}>
+                    <h3 id="cancel-order-title">Cancel this order?</h3><p>This action will be sent to the kitchen immediately. You can optionally tell us why.</p>
+                    <label htmlFor="cancel-reason">Reason (optional)</label><select id="cancel-reason" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)}><option value="">Choose a reason</option><option>Ordered by mistake</option><option>Changed delivery time</option><option>Wrong address or item</option><option>Other</option></select>
+                    {cancelReason === "Other" && <textarea aria-label="Other cancellation reason" maxLength={500} value={cancelReasonOther} placeholder="Share an optional reason" onChange={(event) => setCancelReasonOther(event.target.value)} />}
+                    <div><button type="button" disabled={cancelling} onClick={() => void handleCancelOrder()}>{cancelling ? "Cancelling…" : "Yes, cancel order"}</button><button type="button" disabled={cancelling} onClick={() => setShowCancelConfirm(false)}>Keep order</button></div>
+                  </motion.section>
+                </motion.div>}
+              </AnimatePresence>
             </div>
           </motion.div>
         )}
@@ -589,10 +588,10 @@ export function OrderTracking() {
             </span>
             <div>
               <strong style={{ fontSize: "14px", color: "#0f172a" }}>
-                {liveOrder?.riderName || "Mumtaz Express Rider"}
+              {liveOrder?.riderName || "Rider assignment pending"}
               </strong>
               <span style={{ fontSize: "12px", color: "#64748b", display: "block" }}>
-                Estimated delivery: <strong>25–35 mins</strong> · Bahawalpur Express
+                Estimated delivery: <strong>{liveOrder?.estimatedDelivery || "To be confirmed"}</strong> · Bahawalpur
               </span>
             </div>
 
@@ -621,7 +620,7 @@ export function OrderTracking() {
 
           <div style={{ display: "flex", gap: "8px" }}>
             <a
-              href={`tel:${liveOrder?.riderPhone || "03096648932"}`}
+              href={`tel:${liveOrder?.riderPhone || storeSettings?.restaurant.phone || "03096648932"}`}
               style={{
                 padding: "8px 14px",
                 borderRadius: "10px",
@@ -636,7 +635,7 @@ export function OrderTracking() {
                 gap: "4px",
               }}
             >
-              📞 Call Rider
+              {liveOrder?.riderPhone ? "📞 Call Rider" : "📞 Call Kitchen"}
             </a>
             <a
               href={whatsappUrl(
@@ -674,8 +673,7 @@ export function OrderTracking() {
               name="order"
               value={orderNumber}
               onChange={(event) => setOrderNumber(event.target.value)}
-              required
-              placeholder="e.g. #HMF-1234"
+              placeholder="Order number or leave blank to search by phone"
               style={{ borderRadius: "10px" }}
             />
           </label>
@@ -687,7 +685,7 @@ export function OrderTracking() {
               autoComplete="tel"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
-              placeholder="03xx xxxxxxx (optional)"
+              placeholder="03xx xxxxxxx"
               style={{ borderRadius: "10px" }}
             />
           </label>
@@ -725,6 +723,7 @@ export function OrderTracking() {
           {lookupTarget && !liveOrder && !lookupError && (
             <span className="tracking-loading">Checking the latest order status…</span>
           )}
+          {lookupError.toLowerCase().includes("order not found") && <p className="tracking-not-found"><strong>Order not found</strong><span>Check the spelling of your order number and the phone used at checkout, or try your phone number by itself.</span></p>}
         </form>
 
         <div className="tracking-contact" style={{ borderRadius: "16px", marginTop: "16px" }}>
@@ -740,5 +739,6 @@ export function OrderTracking() {
         </div>
       </aside>
     </div>
+    </MotionConfig>
   );
 }

@@ -1,3 +1,5 @@
+import { normalizeWhatsAppNumber } from "@/lib/order-whatsapp";
+
 export type Portion = { name: string; price: number };
 
 export type Dish = {
@@ -13,6 +15,9 @@ export type Dish = {
   dietaryTags?: string[];
   allergens?: string[];
   nutrition?: { calories?: number; proteinGrams?: number; carbsGrams?: number; fatGrams?: number };
+  dailyStockLimit?: number | null;
+  remainingStock?: number | null;
+  addons?: unknown[];
   spiceLevel?: "mild" | "medium" | "hot";
   rating?: number;
   ratingCount?: number;
@@ -45,6 +50,7 @@ export function dishesForCategoryOrAvailable(dishes: Dish[], category: string): 
   );
 }
 
-export function whatsappUrl(message: string) {
-  return `https://wa.me/923096648932?text=${encodeURIComponent(message)}`;
+export function whatsappUrl(message: string, phone?: string) {
+  const digits = normalizeWhatsAppNumber(phone);
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }

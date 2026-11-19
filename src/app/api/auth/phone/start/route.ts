@@ -23,7 +23,7 @@ function failure(error: string, status: number) {
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!url || !key) throw new Error("Supabase phone verification requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+  if (!url || !key) throw new Error("Phone verification database access is not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
@@ -106,15 +106,17 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[PHONE_OTP_START_ERROR]", error);
     if (isSupabaseSchemaMismatch(error)) {
-      return failure("Phone verification is temporarily unavailable because the database setup is incomplete. Please contact support.", 503);
+      return failure("Phone verification is temporarily unavailable because the database setup is incomplete. Use Email sign-in/OTP instead.", 503);
     }
     const message = error instanceof Error ? error.message : "";
-    if (message.startsWith("SMS service is rate limited")) return failure(message, 429);
-    if (message.startsWith("SMS delivery") || message.startsWith("SMS provider")) {
-      return failure(message, 503);
+    if (message.includes("Phone verification database access is not configured")) {
+      return failure(`${message} You can use Email sign-in/OTP instead.`, 503);
     }
-    if (message.includes("SMS verification is not configured")) {
-      return failure(message, 503);
+    if (message.startsWith("SMS service is rate limited")) {
+      return failure(`${message} You can use Email sign-in/OTP instead.`, 429);
+    }
+    if (message.startsWith("SMS delivery") || message.startsWith("SMS provider") || message.includes("SMS verification is not configured")) {
+      return failure(`${message} You can use Email sign-in/OTP instead.`, 503);
     }
     return failure("Could not send a verification code. Please try again later.", 500);
   }

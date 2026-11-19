@@ -77,6 +77,18 @@ function mapDish(row: SupabaseRow): Dish {
     ? storedPortions
     : [{ name: "Full Plate", price: numberValue(row, "price_from", "price") || 0 }];
   const availability = value(row, "available", "is_available");
+  const storedNutrition = value(row, "nutrition");
+  const nutrition = storedNutrition && typeof storedNutrition === "object"
+    ? storedNutrition as Dish["nutrition"]
+    : [value(row, "calories"), value(row, "protein_g"), value(row, "carbs_g"), value(row, "fat_g")].some((item) => item !== undefined && item !== null)
+      ? {
+          calories: numberValue(row, "calories"),
+          proteinGrams: numberValue(row, "protein_g"),
+          carbsGrams: numberValue(row, "carbs_g"),
+          fatGrams: numberValue(row, "fat_g"),
+        }
+      : undefined;
+  const addons = value(row, "addons", "addons_json");
   return {
     id: numberValue(row, "id") || 0,
     name: stringValue(row, "name") || "Dish",
@@ -89,9 +101,10 @@ function mapDish(row: SupabaseRow): Dish {
     servingSize: stringValue(row, "servingSize", "serving_size"),
     dietaryTags: Array.isArray(value(row, "dietaryTags", "dietary_tags")) ? value(row, "dietaryTags", "dietary_tags") as string[] : [],
     allergens: Array.isArray(value(row, "allergens")) ? value(row, "allergens") as string[] : [],
-    nutrition: value(row, "nutrition") && typeof value(row, "nutrition") === "object"
-      ? value(row, "nutrition") as Dish["nutrition"]
-      : undefined,
+    nutrition,
+    dailyStockLimit: numberValue(row, "dailyStockLimit", "daily_stock_limit") ?? null,
+    remainingStock: numberValue(row, "remainingStock", "remaining_stock") ?? null,
+    addons: Array.isArray(addons) ? addons : [],
     spiceLevel: stringValue(row, "spiceLevel", "spice_level") as Dish["spiceLevel"],
     rating: numberValue(row, "rating"),
     ratingCount: numberValue(row, "ratingCount", "rating_count"),
@@ -147,9 +160,9 @@ function mapOrder(row: SupabaseRow): DbOrder {
     paymentMethod: stringValue(row, "paymentMethod", "payment_method") || "Cash on Delivery",
     items,
     subtotal: numberValue(row, "subtotal") || 0,
-    discount: numberValue(row, "discount") || 0,
+    discount: numberValue(row, "discount", "discount_amount") || 0,
     deliveryFee: numberValue(row, "deliveryFee", "delivery_fee") || 0,
-    total: numberValue(row, "total") || 0,
+    total: numberValue(row, "total", "total_amount") || 0,
     status: (stringValue(row, "status") || "pending") as DbOrderStatus,
     paymentStatus: (stringValue(row, "payment_status") || "pending") as DbOrder["paymentStatus"],
     paymentSlipUrl: stringValue(row, "payment_slip_url"),
@@ -157,6 +170,8 @@ function mapOrder(row: SupabaseRow): DbOrder {
     customerNote: stringValue(row, "customer_note"),
     adminNotes: stringValue(row, "admin_note", "admin_notes"),
     adminMediaUrl: stringValue(row, "admin_video_url", "admin_media_url"),
+    cancellationReason: stringValue(row, "cancellation_reason"),
+    deletedAt: stringValue(row, "deleted_at"),
     createdAt: stringValue(row, "createdAt", "created_at") || new Date().toISOString(),
     updatedAt: stringValue(row, "updatedAt", "updated_at") || new Date().toISOString(),
     riderName: stringValue(row, "riderName", "rider_name"),
@@ -254,12 +269,16 @@ export async function deleteSupabaseCategory(name: string) {
 }
 
 export async function getSupabaseOrders() {
-  return rowsOf(await request("orders?select=*&order=created_at.desc"), "Orders query").map(mapOrder);
+  return rowsOf(await request("orders?select=*&deleted_at=is.null&order=created_at.desc"), "Orders query").map(mapOrder);
 }
 
 export async function getSupabaseOrder(number: string, phone?: string) {
-  const normalized = number.trim().replace(/^#/, "");
-  const rows = rowsOf(await request(`orders?select=*&or=(number.eq.${encodeURIComponent(number)},number.eq.${encodeURIComponent(`#${normalized}`)})`), "Order query");
+  const normalized = number.trim().toUpperCase().replace(/^#/, "");
+  if (!normalized || !/^[A-Z0-9-]+$/.test(normalized)) return null;
+  const filters = [`number.ilike.${normalized}`, `number.ilike.#${normalized}`];
+  if (/^[A-F0-9-]{36}$/.test(normalized) || /^\d+$/.test(normalized)) filters.push(`id.eq.${normalized.toLowerCase()}`);
+  const query = new URLSearchParams({ select: "*", or: `(${filters.join(",")})`, deleted_at: "is.null" });
+  const rows = rowsOf(await request(`orders?${query.toString()}`), "Order query");
   const orders = rows.map(mapOrder);
   return orders.find((order) => {
     if (!phone) return true;
@@ -267,6 +286,47 @@ export async function getSupabaseOrder(number: string, phone?: string) {
     const supplied = phone.replace(/\D/g, "");
     return expected.length >= 10 && supplied.length >= 10 && expected.slice(-10) === supplied.slice(-10);
   }) || null;
+}
+
+export async function getSupabaseOrdersForPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10) return [];
+  const query = new URLSearchParams({
+    select: "*",
+    customer_phone: `ilike.*${digits.slice(-10)}`,
+    deleted_at: "is.null",
+    order: "created_at.desc",
+    limit: "10",
+  });
+  return rowsOf(await request(`orders?${query.toString()}`), "Customer order query")
+    .map(mapOrder)
+    .filter((order) => {
+      const stored = order.customerPhone.replace(/\D/g, "");
+      return stored.length >= 10 && stored.slice(-10) === digits.slice(-10);
+    });
+}
+
+export async function cancelSupabaseOrder(number: string, phone: string, reason: string) {
+  const result = await request("rpc/cancel_homefood_order", {
+    method: "POST",
+    body: JSON.stringify({
+      p_order_number: number,
+      p_phone: phone,
+      p_reason: reason,
+    }),
+  });
+  const row = rowsOf(result, "Order cancellation")[0];
+  if (!row || (row.result !== "cancelled" && row.result !== "locked" && row.result !== "not_found")) {
+    throw new Error("Order cancellation returned an unexpected Supabase response.");
+  }
+  const orderData = row.order_data;
+  return {
+    result: row.result,
+    ...(orderData && typeof orderData === "object" ? { order: mapOrder(orderData as SupabaseRow) } : {}),
+  } as {
+    result: "cancelled" | "locked" | "not_found";
+    order?: DbOrder;
+  };
 }
 
 export async function insertSupabaseOrder(order: DbOrder) {
@@ -376,6 +436,15 @@ export async function upsertSupabaseDish(dish: Partial<Dish> & { name: string; c
     featured: dish.featured ?? false,
     sold_out: dish.soldOut ?? false,
     translations: dish.translations || {},
+    ...(dish.dailyStockLimit !== undefined ? { daily_stock_limit: dish.dailyStockLimit } : {}),
+    ...(dish.remainingStock !== undefined ? { remaining_stock: dish.remainingStock } : {}),
+    ...(dish.nutrition?.calories !== undefined ? { calories: dish.nutrition.calories } : {}),
+    ...(dish.nutrition?.proteinGrams !== undefined ? { protein_g: dish.nutrition.proteinGrams } : {}),
+    ...(dish.nutrition?.carbsGrams !== undefined ? { carbs_g: dish.nutrition.carbsGrams } : {}),
+    ...(dish.nutrition?.fatGrams !== undefined ? { fat_g: dish.nutrition.fatGrams } : {}),
+    ...(dish.allergens !== undefined ? { allergens: dish.allergens } : {}),
+    ...(dish.addons !== undefined ? { addons_json: dish.addons } : {}),
+    updated_at: new Date().toISOString(),
   };
   const saved = firstRow(await request("menu_items?on_conflict=id", {
     method: "POST",
@@ -539,6 +608,29 @@ export async function upsertSupabaseCustomer(customer: Partial<DbCustomer> & { e
     body: JSON.stringify(row),
   }), "Customer upsert");
   return mapCustomer(saved);
+}
+
+export async function upsertSupabaseAuthProfile(profile: {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const updatedAt = new Date().toISOString();
+  const saved = firstRow(await request("profiles?on_conflict=id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({
+      id: profile.id,
+      email: profile.email.trim().toLowerCase(),
+      full_name: profile.name,
+      avatar_url: profile.avatarUrl || "",
+      metadata: profile.metadata || {},
+      updated_at: updatedAt,
+    }),
+  }), "Auth profile upsert");
+  return saved;
 }
 
 export async function upsertSupabasePhoneCustomer(customer: {
