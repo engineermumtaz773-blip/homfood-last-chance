@@ -1,6 +1,6 @@
-import type { Dish } from "@/lib/data";
+import { getFallbackDishes, type Dish } from "@/lib/data";
 import type { StoreSettings } from "@/lib/store-db";
-import { assertSupabaseConfigured, getSupabaseDeals, getSupabaseDishes, getSupabaseSettings } from "@/lib/supabase-server";
+import { getSupabaseDeals, getSupabaseDishes, getSupabaseSettings } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,13 +9,18 @@ type ChatTurn = { role: "user" | "assistant"; content: string };
 type StoreContext = {
   dishes: Dish[];
   deals: Awaited<ReturnType<typeof getSupabaseDeals>>;
-  settings: StoreSettings;
+  settings: StoreSettings | null;
 };
 
 async function loadStoreContext(): Promise<StoreContext> {
-  assertSupabaseConfigured();
-  const [dishes, deals, settings] = await Promise.all([getSupabaseDishes(), getSupabaseDeals(), getSupabaseSettings()]);
-  if (!settings) throw new Error("Store settings are not initialized in Supabase.");
+  const [dishResult, dealResult, settingsResult] = await Promise.allSettled([
+    getSupabaseDishes(),
+    getSupabaseDeals(),
+    getSupabaseSettings(),
+  ]);
+  const dishes = dishResult.status === "fulfilled" ? dishResult.value : getFallbackDishes();
+  const deals = dealResult.status === "fulfilled" ? dealResult.value : [];
+  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
   return { dishes, deals, settings };
 }
 
@@ -67,6 +72,7 @@ async function buildDualLayerSystemPrompt(locale: string): Promise<string> {
 
   return `You are the advanced AI Assistant for "Home Made Food" (HMF), a premier homemade culinary kitchen based in Bahawalpur, Pakistan.
 Respond in ${language}, matching the customer's language and tone (Urdu, Roman Urdu, Sindhi, or English).
+For general, world, programming, language, and food questions, answer the user's actual question fully and directly first. Only after that answer, add one brief, natural invitation to try Home Made Food in Bahawalpur. Never replace a useful answer with a generic restaurant pitch.
 
 You operate with DUAL-LAYER CAPABILITIES:
 
@@ -79,7 +85,7 @@ Use the live real-time database context below for all restaurant, dish, pricing,
 • BAHAWALPUR DELIVERY AREAS: ${settings?.delivery.deliveryAreas.join(", ") || "Bahawalpur"}.
 • DELIVERY TIMINGS & PREPARATION: Freshly cooked on order. Estimated kitchen preparation & delivery: ${settings?.delivery.estimatedDeliveryTime || "30-45 minutes"}.
 • DELIVERY SLOTS: ${settings?.businessHours.slots.join(", ") || "Daily"}.
-• REGULAR OPERATING HOURS: ${Object.entries(settings.businessHours.schedule || {}).map(([day, hours]) => `${day}: ${hours.enabled ? `${hours.open}–${hours.close}` : "closed"}`).join("; ") || "Check the live storefront"}.
+• REGULAR OPERATING HOURS: ${Object.entries(settings?.businessHours.schedule || {}).map(([day, hours]) => `${day}: ${hours.enabled ? `${hours.open}–${hours.close}` : "closed"}`).join("; ") || "Check the live storefront"}.
 • DYNAMIC MCB RAAST CHECKOUT QR CODE: On checkout (/checkout), customers can scan the dynamic EMVCo QR code encoding Merchant "MUMTAZ ALI", Reference "${settings?.payments.raastMerchantName || "9955"}", and the exact dynamic cart total in PKR. Cash on Delivery is also supported.
 • CONTACT: WhatsApp: ${settings?.restaurant.whatsapp || "Available on website"} | Phone: ${settings?.restaurant.phone || "Available on website"}.
 • ORDER TRACKING: Customers can track live orders at /track-order with their order number and phone.

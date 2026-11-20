@@ -4,39 +4,6 @@ import { isSupabaseSchemaMismatch } from "@/lib/supabase-schema";
 
 type SupabaseRow = Record<string, unknown>;
 
-const menuItemRequiredColumns = [
-  "id",
-  "name",
-  "description",
-  "category",
-  "categories",
-  "image",
-  "image_url",
-  "portions",
-  "available",
-  "featured",
-  "sold_out",
-  "daily_stock_limit",
-  "remaining_stock",
-  "calories",
-  "protein_g",
-  "carbs_g",
-  "fat_g",
-  "allergens",
-  "addons_json",
-  "updated_at",
-  "deleted_at",
-] as const;
-
-const menuItemSelectColumns = [
-  ...menuItemRequiredColumns,
-  "serving_size",
-  "dietary_tags",
-  "rating",
-  "rating_count",
-  "translations",
-].join(",");
-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
@@ -311,10 +278,21 @@ export async function getSupabaseOrders() {
 export async function getSupabaseOrder(number: string, phone?: string) {
   const normalized = number.trim().toUpperCase().replace(/^#/, "");
   if (!normalized || !/^[A-Z0-9-]+$/.test(normalized)) return null;
-  const filters = [`number.ilike.${normalized}`, `number.ilike.#${normalized}`];
-  if (/^[A-F0-9-]{36}$/.test(normalized) || /^\d+$/.test(normalized)) filters.push(`id.eq.${normalized.toLowerCase()}`);
+  const numberFilters = [`number.ilike.${normalized}`, `number.ilike.#${normalized}`];
+  const filters = [...numberFilters, `order_number.ilike.${normalized}`, `order_number.ilike.#${normalized}`];
+  if (/^[0-9A-F]{8}-[0-9A-F]{4}-[1-5][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i.test(normalized)) {
+    filters.push(`id.eq.${normalized.toLowerCase()}`);
+  }
   const query = new URLSearchParams({ select: "*", or: `(${filters.join(",")})`, deleted_at: "is.null" });
-  const rows = rowsOf(await request(`orders?${query.toString()}`), "Order query");
+  let rows: SupabaseRow[];
+  try {
+    rows = rowsOf(await request(`orders?${query.toString()}`), "Order query");
+  } catch (error) {
+    if (!isSupabaseSchemaMismatch(error)) throw error;
+    const fallbackFilters = [...numberFilters, ...filters.filter((filter) => filter.startsWith("id.eq."))];
+    query.set("or", `(${fallbackFilters.join(",")})`);
+    rows = rowsOf(await request(`orders?${query.toString()}`), "Order query");
+  }
   const orders = rows.map(mapOrder);
   return orders.find((order) => {
     if (!phone) return true;
@@ -448,14 +426,9 @@ function matchesDishCategory(dish: Dish, category: string) {
 }
 
 export async function getSupabaseDishes(category?: string) {
-  const rows = rowsOf(await request(`menu_items?select=${menuItemSelectColumns}&deleted_at=is.null&order=id.asc`), "Menu query");
-  const invalidRows = rows.flatMap((row, index) => {
-    const missing = menuItemRequiredColumns.filter((column) => !(column in row));
-    return missing.length ? [`row ${index + 1}: ${missing.join(", ")}`] : [];
-  });
-  if (invalidRows.length) {
-    throw new Error(`Supabase menu_items response is missing required columns (${invalidRows.join("; ")}). Apply the required database migrations and retry.`);
-  }
+  // select=* avoids PostgREST schema-cache failures when optional menu columns
+  // have not been migrated yet. mapDish already supplies safe defaults.
+  const rows = rowsOf(await request("menu_items?select=*&order=id.asc"), "Menu query");
   const dishes = rows
     .filter((row) => value(row, "deleted_at") == null)
     .map(mapDish);

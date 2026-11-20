@@ -8,6 +8,7 @@ import Image from "next/image";
 import { acquireScrollLock } from "@/lib/scroll-lock";
 import { saveCustomerProfile, readCustomerProfile, type CustomerProfile } from "@/lib/customer";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
+import { getFriendlyGoogleAuthError } from "@/lib/auth-error-message";
 
 export type AuthMode = "signup" | "login";
 export type AuthStep = "method" | "otp" | "success";
@@ -177,9 +178,7 @@ export function CustomerAuthModal({
       window.location.assign(data.url);
     } catch (err) {
       console.error("[GOOGLE_OAUTH_START_ERROR]", err);
-      setError(err instanceof Error
-        ? `Google sign-in could not start: ${err.message}`
-        : "Google sign-in could not start. Please use email verification or phone OTP.");
+      setError(getFriendlyGoogleAuthError(err));
       setGoogleBusy(false);
     }
   };

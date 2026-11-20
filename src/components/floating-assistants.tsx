@@ -52,7 +52,7 @@ async function fetchChatWithRetry(payload: { locale: Locale; messages: { role: s
 }
 
 function localAssistantFallback() {
-  return "I can’t reach the live assistant right now. Open the menu for current dishes and prices, or use order tracking to check an order.";
+  return "I’m having trouble connecting to the assistant at the moment. Please try again shortly; you can still browse the live menu or track an order while I reconnect.";
 }
 
 function AssistantIcon() {
@@ -157,7 +157,11 @@ export function FloatingAssistants() {
   }, []);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: reducedMotion || isThinking ? "auto" : "smooth" }); }, [messages, open, reducedMotion, isThinking]);
-  const userName = customer?.name.trim() || customer?.email?.split("@")[0] || "";
+  const profileName = customer?.name.trim() || "";
+  const emailName = customer?.email?.split("@")[0]?.trim() || "";
+  const userName = !/^(x|xyz|test|guest|user|customer)$/i.test(profileName)
+    ? profileName
+    : !/^(x|xyz|test|guest|user|customer)$/i.test(emailName) ? emailName : "";
   const inputPlaceholder = `${userName || "Guest"}, ${text.placeholder}`;
   const userInitial = userName.trim().charAt(0).toUpperCase();
   const welcome = useMemo(() => {

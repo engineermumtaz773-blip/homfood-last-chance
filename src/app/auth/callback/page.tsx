@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
 import { saveCustomerProfile, type CustomerProfile } from "@/lib/customer";
+import { getFriendlyGoogleAuthError } from "@/lib/auth-error-message";
 
 function safeReturnPath(value: string | null) {
   return value?.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\") ? value : "/";
@@ -63,7 +64,7 @@ function CallbackStatus() {
     void completeSignIn().catch((cause: unknown) => {
       if (cancelled) return;
       console.error("[SUPABASE_AUTH_CALLBACK_ERROR]", cause);
-      setMessage(cause instanceof Error ? cause.message : "Unable to complete sign-in. Please try again.");
+      setMessage(getFriendlyGoogleAuthError(cause));
       setError(true);
     });
     return () => { cancelled = true; };

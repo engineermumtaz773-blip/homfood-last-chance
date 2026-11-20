@@ -35,6 +35,9 @@ export function getKitchenAvailability(settings: StoreSettings, now = new Date()
   const adminClosingNotice = typeof businessHours.holidayMessage === "string" ? businessHours.holidayMessage.trim() : "";
   if (businessHours.holidayMode) return { available: false, reason: adminClosingNotice || "The kitchen is temporarily closed for a holiday.", schedule };
   if (settings.restaurant?.isOpen === false) return { available: false, reason: "The kitchen is temporarily closed by the admin.", schedule };
+  if (Object.keys(weeklySchedule).length === 0) {
+    return { available: true, reason: "Online ordering is open. Kitchen hours have not been configured yet.", schedule: "Hours to be confirmed" };
+  }
   if (!day?.enabled) return { available: false, reason: `The kitchen is closed on ${today}.`, schedule };
 
   const current = Number(part("hour")) * 60 + Number(part("minute"));
@@ -46,6 +49,7 @@ export function getKitchenAvailability(settings: StoreSettings, now = new Date()
   }
 
   const slots = Array.isArray(businessHours.mealSlots) ? businessHours.mealSlots : [];
+  if (slots.length === 0) return { available: true, reason: "Online ordering is open during kitchen hours.", schedule };
   const activeSlot = slots.find((slot) => slot.enabled && current >= minutes(slot.open) && current < minutes(slot.close));
   if (!activeSlot) return { available: false, reason: "No meal slot is accepting orders right now.", schedule };
   return { available: true, reason: `${activeSlot.name} orders are open.`, schedule, activeSlot: activeSlot.name };

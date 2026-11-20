@@ -10,7 +10,8 @@ import {
 } from "@/lib/supabase-server";
 import { supabaseErrorResponse } from "@/lib/api-errors";
 import { requireAdminRequest } from "@/lib/admin-request";
-import type { Dish } from "@/lib/data";
+import { getFallbackDishes, type Dish } from "@/lib/data";
+import { isSupabaseConfigured } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,18 +22,26 @@ function revalidateMenuPaths() {
 }
 
 export async function GET(request: NextRequest) {
+  const category = new URL(request.url).searchParams.get("category") || undefined;
   try {
     assertSupabaseConfigured();
-    const category = new URL(request.url).searchParams.get("category") || undefined;
     const dishes = await getSupabaseDishes(category);
     const categories = [...new Set(dishes.flatMap((dish) => [dish.category, ...(dish.categories || [])]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return NextResponse.json(
-      { dishes, categories },
+      { dishes, categories, source: "supabase" },
       { headers: { "Cache-Control": "no-store, max-age=0", "X-Data-Source": "supabase" } }
     );
   } catch (error) {
     console.error("Failed to load menu database:", error);
-    return supabaseErrorResponse(error, "Menu data is temporarily unavailable.", 503);
+    const fallback = getFallbackDishes();
+    const dishes = category && category.toLocaleLowerCase() !== "all"
+      ? fallback.filter((dish) => [dish.category, ...(dish.categories || [])].some((name) => name.toLocaleLowerCase() === category.toLocaleLowerCase()))
+      : fallback;
+    const categories = [...new Set(dishes.flatMap((dish) => [dish.category, ...(dish.categories || [])]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    return NextResponse.json(
+      { dishes, categories, source: isSupabaseConfigured ? "local-fallback" : "local" },
+      { headers: { "Cache-Control": "no-store, max-age=0", "X-Data-Source": "local-fallback" } }
+    );
   }
 }
 

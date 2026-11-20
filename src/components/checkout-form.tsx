@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -51,6 +51,7 @@ export function CheckoutForm() {
   const [isRemovingSlip, setIsRemovingSlip] = useState(false);
   const [orderConfirmation, setOrderConfirmation] = useState<LiveOrderStatus | null>(null);
   const [copyMessage, setCopyMessage] = useState("");
+  const paymentQrRef = useRef<SVGSVGElement>(null);
   const slipPreviewUrl = useMemo(() => slipFile ? URL.createObjectURL(slipFile) : "", [slipFile]);
   const selectedZone = deliveryZones.find((zone) => zone.zone_name === deliveryArea);
   const subtotal = items.reduce((total, item) => total + item.price * item.quantity, 0);
@@ -156,6 +157,22 @@ export function CheckoutForm() {
       console.error("Could not copy the WhatsApp order message.", error);
       setCopyMessage("Copy was blocked. Select and copy the order details manually.");
     }
+  }
+
+  function downloadPaymentQr() {
+    const qr = paymentQrRef.current;
+    if (!qr || !raastSession) return;
+    const svg = qr.cloneNode(true) as SVGSVGElement;
+    svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${raastSession.orderNumber.replace(/[^a-z0-9-]/gi, "-")}-raast-qr.svg`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   useEffect(() => {
@@ -330,7 +347,7 @@ export function CheckoutForm() {
   return (
     <MotionConfig reducedMotion="user">
     <div className="checkout-grid">
-      {kitchen && !kitchen.available && <div className="checkout-closed-notice" role="alert"><strong>Online orders are paused</strong><p>{kitchen.reason}</p><small>{kitchen.schedule}</small></div>}
+      {kitchen && !kitchen.available && <div id="checkout-kitchen-status" className="checkout-closed-notice" role="alert"><strong>Online orders are paused</strong><p>{kitchen.reason}</p><small>{kitchen.schedule}</small></div>}
       <AnimatePresence mode="wait" initial={false}>
       {raastSession ? (
         paymentModalOpen ? <motion.div key="raast-payment-backdrop" className="raast-payment-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -339,7 +356,8 @@ export function CheckoutForm() {
           <p className="raast-kicker">MCB · RAAST P2M</p>
           <h2>Pay for order {raastSession.orderNumber}</h2>
           <p className="raast-order-reference">Exact amount: <strong>PKR {money.format(raastSession.amount)}</strong></p>
-          <div className="voucher-minimal-qr-card"><QRCodeSVG value={generateEmvcoRaastQrString({ merchantName: storeSettings?.payments.raastMerchantName || RAAST_MERCHANT_NAME, ref: storeSettings?.payments.raastRef || RAAST_REF_NUMBER, iban: storeSettings?.payments.bankIban || RAAST_MERCHANT_IBAN, amount: raastSession.amount, city: "Bahawalpur", purpose: `Order ${raastSession.orderNumber}` })} size={260} level="M" includeMargin style={{ display: "block", maxWidth: "100%", height: "auto" }} /></div>
+          <div className="voucher-minimal-qr-card"><QRCodeSVG ref={paymentQrRef} value={generateEmvcoRaastQrString({ merchantName: storeSettings?.payments.raastMerchantName || RAAST_MERCHANT_NAME, ref: storeSettings?.payments.raastRef || RAAST_REF_NUMBER, iban: storeSettings?.payments.bankIban || RAAST_MERCHANT_IBAN, amount: raastSession.amount, city: "Bahawalpur", purpose: `Order ${raastSession.orderNumber}` })} size={260} level="M" includeMargin style={{ display: "block", maxWidth: "100%", height: "auto" }} /></div>
+          <button type="button" className="checkout-raast-select" onClick={downloadPaymentQr}>Download order QR / challan</button>
           <p className="raast-order-reference"><strong>{storeSettings?.payments.raastMerchantName || RAAST_MERCHANT_NAME}</strong> · Ref {storeSettings?.payments.raastRef || RAAST_REF_NUMBER}</p>
           <p className="raast-order-reference">{storeSettings?.payments.bankName || "Raast"} · IBAN {storeSettings?.payments.bankIban || RAAST_MERCHANT_IBAN}</p>
           {storeSettings?.payments.paymentInstructions && <p>{storeSettings.payments.paymentInstructions}</p>}
@@ -377,7 +395,7 @@ export function CheckoutForm() {
           <label className="field full">Delivery timing<select name="deliveryTime" defaultValue="As soon as possible"><option>As soon as possible</option><option>Today · 12:00–2:00 PM</option><option>Today · 2:00–5:00 PM</option><option>Today · 6:00–9:00 PM</option></select></label>
         </div>
         {submitError && <p className="form-error" role="alert">{submitError}</p>}
-        {kitchen?.available !== false && <button className="add-button checkout-submit-button" type="submit" disabled={isSubmitting || !kitchen}>{isSubmitting ? "Placing order…" : "Confirm & Place Order"} <span aria-hidden="true">→</span></button>}
+        <button className="add-button checkout-submit-button" type="submit" disabled={isSubmitting || !kitchen || kitchen.available === false} aria-describedby={kitchen?.available === false ? "checkout-kitchen-status" : undefined}>{isSubmitting ? "Placing order…" : kitchen?.available === false ? "Ordering paused" : "Confirm & Place Order"} <span aria-hidden="true">→</span></button>
         <p style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.6 }}>After your order is saved, a dynamic Raast QR will be shown. Payment is confirmed by the merchant after you upload your receipt.</p>
       </motion.form>
       )}

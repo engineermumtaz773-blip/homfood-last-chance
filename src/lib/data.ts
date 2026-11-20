@@ -1,4 +1,5 @@
 import { normalizeWhatsAppNumber } from "@/lib/order-whatsapp";
+import storeDatabase from "@/data/store-db.json";
 
 export type Portion = { name: string; price: number };
 
@@ -39,8 +40,12 @@ export async function getDishesSafely(): Promise<Dish[] | null> {
     return await getDishes();
   } catch (error) {
     console.error("[MENU_DATA_UNAVAILABLE]", error);
-    return null;
+    return getFallbackDishes();
   }
+}
+
+export function getFallbackDishes(): Dish[] {
+  return storeDatabase.dishes as Dish[];
 }
 
 export function dishesForCategoryOrAvailable(dishes: Dish[], category: string): Dish[] {
