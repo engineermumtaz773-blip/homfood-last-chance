@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import type { DbOrder, DbOrderStatus } from "@/lib/store-db";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
+import { normalizeWhatsAppNumber } from "@/lib/order-whatsapp";
 
 const STATUS_CONFIG: Record<
   DbOrderStatus,
@@ -65,15 +66,14 @@ export function AdminOrdersManager() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ number, status: newStatus }),
       });
-      if (res.ok) {
-        setMessage(`Order ${number} status updated to ${STATUS_CONFIG[newStatus].label}.`);
-        setOrders((prev) =>
-          prev.map((o) => (o.number === number ? { ...o, status: newStatus } : o))
-        );
-        setTimeout(() => setMessage(""), 3500);
-      }
+      const data = await res.json().catch(() => null) as { order?: DbOrder; warnings?: string[]; error?: string } | null;
+      if (!res.ok) throw new Error(data?.error || `Order status update failed (HTTP ${res.status}).`);
+      if (data?.order) setOrders((prev) => prev.map((order) => order.number === number ? data.order as DbOrder : order));
+      setMessage(data?.warnings?.join(" ") || `Order ${number} status updated to ${STATUS_CONFIG[newStatus].label}.`);
+      window.setTimeout(() => setMessage(""), 5000);
     } catch (err) {
       console.error("Failed to update status:", err);
+      setMessage(err instanceof Error ? err.message : "Order status update failed.");
     } finally {
       setUpdatingId(null);
     }
@@ -105,9 +105,9 @@ export function AdminOrdersManager() {
         body: JSON.stringify({ number: order.number, status: order.status, paymentStatus: "paid" }),
       });
       if (!res.ok) throw new Error("Payment approval failed.");
-      const data = await res.json() as { order?: DbOrder };
+      const data = await res.json() as { order?: DbOrder; warnings?: string[] };
       if (data.order) setOrders((current) => current.map((item) => item.number === order.number ? data.order! : item));
-      setMessage(`Payment for ${order.number} marked Paid.`);
+      setMessage(data.warnings?.join(" ") || `Payment for ${order.number} marked Paid.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Payment approval failed.");
     } finally {
@@ -508,9 +508,9 @@ export function AdminOrdersManager() {
                       )}
                     </div>
 
-                    <a
-                      href={`https://wa.me/${order.customerPhone.replace(/\D/g, "")}?text=${encodeURIComponent(
-                        `Hi ${order.customerName}, your Home Made Food order ${order.number} is currently: ${cfg.label}. Our kitchen is located in Bahawalpur.`
+                    {order.customerPhone.replace(/\D/g, "").length >= 10 && <a
+                      href={`https://wa.me/${normalizeWhatsAppNumber(order.customerPhone)}?text=${encodeURIComponent(
+                        `Hi ${order.customerName}, your Home Made Food order ${order.number} is ${cfg.label}. Payment: ${(order.paymentStatus || "pending").replace("_", " ")}. Total: PKR ${order.total.toLocaleString()}${order.riderName ? ` · Rider: ${order.riderName}${order.riderPhone ? ` (${order.riderPhone})` : ""}` : ""}\nTrack your order: https://www.homefood.engineer/track-order?order=${encodeURIComponent(order.number)}&phone=${encodeURIComponent(order.customerPhone)}`
                       )}`}
                       target="_blank"
                       rel="noreferrer"
@@ -528,8 +528,8 @@ export function AdminOrdersManager() {
                         marginTop: "8px",
                       }}
                     >
-                      💬 WhatsApp Customer
-                    </a>
+                      💬 Share order status on WhatsApp
+                    </a>}
                   </div>
                 </div>
               </div>

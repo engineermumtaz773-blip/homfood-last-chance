@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useCallback } from "react";
 import type { Dish } from "@/lib/data";
-import { REALTIME_SYNC_EVENT, getRealtimeClient } from "@/lib/realtime-client";
+import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 import { REALTIME_EVENT_DOM, type RealtimeEventPayload } from "@/lib/realtime-bus";
 
 export function useLiveDishes(initialDishes: Dish[]) {
   const [dishes, setDishes] = useState<Dish[]>(Array.isArray(initialDishes) ? initialDishes : []);
   const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(!Array.isArray(initialDishes) || initialDishes.length === 0);
 
   const refreshCatalog = useCallback(async () => {
     try {
@@ -23,13 +24,14 @@ export function useLiveDishes(initialDishes: Dish[]) {
       }
       const nextDishes = (data as { dishes: Dish[] }).dishes;
       setConnected(true);
+      setLoading(false);
       setDishes((current) =>
         JSON.stringify(current) === JSON.stringify(nextDishes) ? current : nextDishes
       );
     } catch (err) {
       console.error("Could not fetch live menu from Supabase:", err);
       setConnected(false);
-      setDishes([]);
+      setLoading(false);
     }
   }, []);
 
@@ -75,26 +77,6 @@ export function useLiveDishes(initialDishes: Dish[]) {
       /* BroadcastChannel is optional */
     }
 
-    // Connect Supabase Realtime Postgres sync if configured
-    const supabase = getRealtimeClient();
-    type RealtimeChannel = ReturnType<NonNullable<typeof supabase>["channel"]>;
-    let supabaseChannel: RealtimeChannel | null = null;
-    if (supabase) {
-      try {
-        supabaseChannel = supabase
-          .channel("public-menu-live-sync")
-          .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" }, () => {
-            void refreshCatalog();
-          })
-          .on("postgres_changes", { event: "*", schema: "public", table: "daily_deals" }, () => {
-            void refreshCatalog();
-          })
-          .subscribe();
-      } catch (err) {
-        console.warn("Supabase Realtime subscription error:", err);
-      }
-    }
-
     return () => {
       window.clearInterval(interval);
       window.cancelAnimationFrame(frame);
@@ -104,9 +86,6 @@ export function useLiveDishes(initialDishes: Dish[]) {
       window.removeEventListener(REALTIME_SYNC_EVENT, onStockChange);
       window.removeEventListener(REALTIME_EVENT_DOM, onRealtimeBusEvent);
       if (channel) channel.close();
-      if (supabase && supabaseChannel) {
-        supabase.removeChannel(supabaseChannel);
-      }
     };
   }, [refreshCatalog]);
 
@@ -144,5 +123,5 @@ export function useLiveDishes(initialDishes: Dish[]) {
     [refreshCatalog]
   );
 
-  return { dishes, connected, setAvailability, refresh: refreshCatalog };
+  return { dishes, connected, loading, setAvailability, refresh: refreshCatalog };
 }

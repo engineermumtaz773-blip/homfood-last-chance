@@ -32,7 +32,9 @@ export async function POST(request: NextRequest) {
       signal: AbortSignal.timeout(8_000),
     });
     if (!userResponse.ok) {
-      return NextResponse.json({ error: "The sign-in session could not be verified. Please try again." }, { status: 401 });
+      return NextResponse.json({
+        error: `Supabase could not verify this sign-in session (HTTP ${userResponse.status}). Please retry or check the configured OAuth redirect URLs.`,
+      }, { status: 401 });
     }
     const user = await userResponse.json() as SupabaseUser;
     const email = user.email?.trim().toLowerCase();
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
       email,
       name,
       avatarUrl,
+      authUserId: user.id,
       authProvider: provider,
       emailVerified: true,
     });
@@ -74,6 +77,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error("[SUPABASE_CUSTOMER_SESSION_ERROR]", error);
-    return NextResponse.json({ error: "Unable to finish sign-in right now. Please try again." }, { status: 503 });
+    const detail = error instanceof Error ? error.message : "Unknown profile synchronization error.";
+    return NextResponse.json({ error: `Unable to finish sign-in: ${detail}` }, { status: 503 });
   }
 }

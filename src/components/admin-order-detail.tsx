@@ -31,12 +31,16 @@ export function AdminOrderDetail({ number }: { number: string }) {
   useEffect(() => {
     let active = true;
     async function load() {
-      const [orderResponse, messageResponse] = await Promise.all([
-        fetch(`/api/orders?number=${encodeURIComponent(number)}`, { cache: "no-store" }),
-        fetch(`/api/order-messages?number=${encodeURIComponent(number)}`, { cache: "no-store" }),
-      ]);
-      if (!active) return;
-      if (orderResponse.ok) {
+      try {
+        const [orderResponse, messageResponse] = await Promise.all([
+          fetch(`/api/orders?number=${encodeURIComponent(number)}`, { cache: "no-store" }),
+          fetch(`/api/order-messages?number=${encodeURIComponent(number)}`, { cache: "no-store" }),
+        ]);
+        if (!active) return;
+        if (!orderResponse.ok) {
+          const data = await orderResponse.json().catch(() => null) as { error?: string } | null;
+          throw new Error(data?.error || `Order could not be loaded (HTTP ${orderResponse.status}).`);
+        }
         const data = await orderResponse.json() as { order?: DbOrder };
         if (data.order) {
           setOrder(data.order);
@@ -44,10 +48,17 @@ export function AdminOrderDetail({ number }: { number: string }) {
           setAdminNotes(data.order.adminNotes || "");
           setAdminMediaUrl(data.order.adminMediaUrl || "");
         }
-      }
-      if (messageResponse.ok) {
-        const data = await messageResponse.json() as { messages?: OrderMessage[] };
-        if (Array.isArray(data.messages)) setMessages(data.messages);
+        if (!messageResponse.ok) {
+          const messageData = await messageResponse.json().catch(() => null) as { error?: string } | null;
+          throw new Error(messageData?.error || `Order messages could not be loaded (HTTP ${messageResponse.status}).`);
+        }
+        const messageData = await messageResponse.json() as { messages?: OrderMessage[] };
+        if (Array.isArray(messageData.messages)) setMessages(messageData.messages);
+        setError("");
+      } catch (loadError) {
+        if (!active) return;
+        console.error("Could not load admin order details or messages.", loadError);
+        setError(loadError instanceof Error ? loadError.message : "Order details could not be loaded.");
       }
     }
     void load();
@@ -62,10 +73,11 @@ export function AdminOrderDetail({ number }: { number: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ number, status: nextStatus }),
     });
-    if (!response.ok) setError("Status could not be saved.");
+    const data = await response.json().catch(() => null) as { order?: DbOrder; warnings?: string[]; error?: string } | null;
+    if (!response.ok) setError(data?.error || `Status could not be saved (HTTP ${response.status}).`);
     else {
-      const data = await response.json() as { order?: DbOrder };
-      if (data.order) setOrder(data.order);
+      if (data?.order) setOrder(data.order);
+      setError(data?.warnings?.join(" ") || "");
     }
   }
 
@@ -83,8 +95,9 @@ export function AdminOrderDetail({ number }: { number: string }) {
       return;
     }
 
-    const data = await response.json() as { message?: OrderMessage };
+    const data = await response.json() as { message?: OrderMessage; warnings?: string[] };
     if (data.message) setMessages((current) => [...current, data.message as OrderMessage]);
+    setError(data.warnings?.join(" ") || "");
     setText("");
   }
 

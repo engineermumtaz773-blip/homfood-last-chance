@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertSupabaseConfigured, createSupabaseReservation, getSupabaseReservations, updateSupabaseReservation } from "@/lib/supabase-server";
+import { assertSupabaseConfigured, createSupabaseReservation, getSupabaseCustomerReservations, getSupabaseReservations, updateSupabaseReservation } from "@/lib/supabase-server";
 import { requireAdminRequest } from "@/lib/admin-request";
 import { CUSTOMER_SESSION_COOKIE, verifySignedCustomerSession } from "@/lib/customer-session";
 import { supabaseErrorResponse } from "@/lib/api-errors";
@@ -8,10 +8,16 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const authError = await requireAdminRequest(request);
-  if (authError) return authError;
   try {
     assertSupabaseConfigured();
-    return NextResponse.json({ reservations: await getSupabaseReservations() }, { headers: { "Cache-Control": "no-store" } });
+    if (!authError) {
+      return NextResponse.json({ reservations: await getSupabaseReservations() }, { headers: { "Cache-Control": "no-store" } });
+    }
+    const customer = verifySignedCustomerSession(request.cookies.get(CUSTOMER_SESSION_COOKIE)?.value);
+    if (!customer?.verified || customer.exp <= Math.floor(Date.now() / 1000)) return authError;
+    return NextResponse.json({
+      reservations: await getSupabaseCustomerReservations(customer.customerId),
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("[GET_RESERVATIONS_ERROR]", error);
     return supabaseErrorResponse(error, "Could not load reservations.");

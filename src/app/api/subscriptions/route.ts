@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertSupabaseConfigured, createSupabaseSubscription, getSupabaseCustomerSubscriptions } from "@/lib/supabase-server";
+import { assertSupabaseConfigured, createSupabaseSubscription, getSupabaseCustomerSubscriptions, getSupabaseSubscriptions, updateSupabaseSubscription } from "@/lib/supabase-server";
 import { CUSTOMER_SESSION_COOKIE, verifySignedCustomerSession } from "@/lib/customer-session";
 import { supabaseErrorResponse } from "@/lib/api-errors";
+import { requireAdminRequest } from "@/lib/admin-request";
 
 export const runtime = "nodejs";
 
@@ -11,15 +12,37 @@ function getCustomer(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const customer = getCustomer(request);
-  if (!customer) return NextResponse.json({ error: "Verified customer authentication is required." }, { status: 401 });
+  const adminError = await requireAdminRequest(request);
   try {
     assertSupabaseConfigured();
+    if (!adminError) {
+      return NextResponse.json({ subscriptions: await getSupabaseSubscriptions() }, { headers: { "Cache-Control": "no-store" } });
+    }
+    const customer = getCustomer(request);
+    if (!customer) return NextResponse.json({ error: "Verified customer authentication is required." }, { status: 401 });
     const subscriptions = await getSupabaseCustomerSubscriptions(customer.customerId);
     return NextResponse.json({ subscriptions }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("[GET_SUBSCRIPTIONS_ERROR]", error);
     return supabaseErrorResponse(error, "Could not load meal subscriptions.");
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const authError = await requireAdminRequest(request);
+  if (authError) return authError;
+  try {
+    const body = await request.json() as { id?: unknown; status?: unknown };
+    if (typeof body.id !== "string" || !["active", "paused", "cancelled", "completed"].includes(String(body.status))) {
+      return NextResponse.json({ error: "A subscription ID and valid status are required." }, { status: 400 });
+    }
+    assertSupabaseConfigured();
+    const subscription = await updateSupabaseSubscription(body.id, body.status as "active" | "paused" | "cancelled" | "completed");
+    if (!subscription) return NextResponse.json({ error: "Meal plan not found." }, { status: 404 });
+    return NextResponse.json({ subscription });
+  } catch (error) {
+    console.error("[UPDATE_SUBSCRIPTION_ERROR]", error);
+    return supabaseErrorResponse(error, "Could not update the meal plan.");
   }
 }
 

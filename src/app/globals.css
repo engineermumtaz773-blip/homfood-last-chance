@@ -1611,31 +1611,6 @@ html[data-custom-cursor-hover="true"] .ambient-cursor-ring { width: 48px; height
   display: none !important;
 }
 
-.adaptive-mobile-container {
-  display: block;
-}
-.adaptive-desktop-container {
-  display: none;
-}
-
-@media (min-width: 768px) {
-  .adaptive-mobile-container {
-    display: none !important;
-  }
-  .adaptive-desktop-container {
-    display: block !important;
-  }
-}
-
-/* 2. Dedicated Installed PWA Mode (display-mode: standalone OR data-pwa-standalone="true") */
-/* Keep App View in a centered mobile frame on desktop. */
-.adaptive-pwa-wrapper { min-height: 100svh; }
-.adaptive-mobile-container { width: min(100%, 430px); min-height: 100svh; margin-inline: auto; overflow-x: hidden; }
-@media (min-width: 768px) {
-  .adaptive-pwa-wrapper { display: grid; place-items: start center; padding: 24px 16px; }
-  .adaptive-mobile-container { display: block !important; width: min(100%, 430px); min-height: calc(100svh - 48px); overflow-x: hidden; border-radius: 28px; box-shadow: 0 24px 70px rgba(15,23,42,.22); }
-  .adaptive-desktop-container { display: none !important; }
-}
 .voucher-qr-modal-minimal { width: min(92vw, 340px) !important; padding: 20px; }
 .voucher-minimal-qr-card { display: grid; place-items: center; width: min(100%, 300px); aspect-ratio: 1; margin: 24px auto 8px; padding: 18px; border-radius: 18px; background: #fff; box-shadow: 0 10px 34px rgba(15,23,42,.12); }
 @media (display-mode: standalone) {
@@ -1878,8 +1853,141 @@ html[data-pwa-standalone="true"] .site-footer {
 .feature-form-full { grid-column: 1/-1; }
 .feature-success { margin: 0; color: var(--accent-strong); font-size: 13px; font-weight: 700; }
 .faq-list { display: grid; gap: 10px; margin-top: 28px; }
+
+/* Full-bleed responsive app and storefront mode switching. */
+html,body { max-width: 100%; overflow-x: clip; }
+.adaptive-storefront-loading { box-sizing: border-box; display: grid; min-height: 100svh; place-items: start center; padding: clamp(20px,4vw,48px); background: var(--page-bg,#f8fafc); }
+.adaptive-loading-content { display: grid; width: min(100%,1200px); gap: 22px; }
+.adaptive-loading-title,.adaptive-loading-categories span,.adaptive-loading-grid span { display: block; border-radius: 14px; background: linear-gradient(100deg,#edf2ef 20%,#f8faf9 40%,#edf2ef 60%); background-size: 200% 100%; animation: dish-skeleton-shimmer 1.35s linear infinite; }
+.adaptive-loading-title { width: min(38%,320px); height: 36px; }
+.adaptive-loading-categories { display: flex; gap: 10px; overflow: hidden; }
+.adaptive-loading-categories span { width: 112px; height: 38px; flex: 0 0 auto; border-radius: 999px; }
+.adaptive-loading-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; }
+.adaptive-loading-grid span { min-width: 0; min-height: 230px; }
+.adaptive-mobile-app,.adaptive-desktop-app,.adaptive-web-wrapper { width: 100%; min-width: 0; }
+.desktop-app-shell { width: 100%; min-height: 100svh; overflow: hidden; background: #f8fafc; }
+.desktop-pos-container { width: min(100%,1440px); min-width: 0; margin-inline: auto; overflow: hidden; }
+.desktop-pos-container > aside:first-child { width: 220px !important; padding: 22px 14px !important; }
+.desktop-app-workspace { min-width: 0; }
+.desktop-app-cart { width: 320px !important; max-height: 100vh !important; }
+.desktop-app-top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.desktop-app-top-actions > button { display: inline-flex; min-height: 39px; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid #dce7df; border-radius: 12px; background: #fff; color: #334155; font-family: inherit; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.desktop-app-badge { display: grid; min-width: 19px; height: 19px; place-items: center; padding-inline: 3px; border-radius: 999px; background: #e8f7ed; color: #137548; font-size: 10px; }
+.desktop-app-profile-chip { display: inline-flex; max-width: 160px; min-height: 39px; align-items: center; gap: 8px; overflow: hidden; padding: 0 11px; border: 1px solid #dce7df; border-radius: 12px; background: #fff; color: #334155; font-size: 11px; font-weight: 700; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-app-profile-chip span { color: #16804d; font-size: 18px; }
+.desktop-app-website-toggle { border-color: #b8dfc7 !important; background: #ebf8ef !important; color: #17653f !important; }
+.desktop-app-categories button { position: relative; }
+.desktop-category-active { position: absolute; z-index: 0; inset: 0; border-radius: 12px; background: linear-gradient(135deg,#059669,#047857); box-shadow: 0 4px 12px #05966947; }
+.desktop-sidebar-active { position: absolute; z-index: 0; inset: 0; border-radius: 12px; background: linear-gradient(135deg,#059669,#047857); box-shadow: 0 4px 14px #05966947; }
+.desktop-app-promo { position: relative; display: grid; min-height: 130px; align-content: center; gap: 6px; overflow: hidden; margin: 2px 0 20px; padding: 18px 22px; border-radius: 18px; background: radial-gradient(circle at 90% 15%,#ffffff55,transparent 28%),linear-gradient(110deg,#0f7650,#19a465); color: #fff; }
+.desktop-app-promo::after { position: absolute; right: 7%; bottom: -48px; color: #ffffff20; content: "✦"; font-size: 190px; line-height: 1; pointer-events: none; }
+.desktop-app-promo > span { font-size: 9px; font-weight: 800; letter-spacing: 1.4px; }
+.desktop-app-promo > strong { font: 800 clamp(18px,2vw,25px)/1.15 "Outfit",sans-serif; }
+.desktop-app-promo > p { margin: 0; color: #e4fff0; font-size: 11px; }
+.desktop-app-promo > button { position: absolute; z-index: 1; right: 18px; bottom: 17px; padding: 8px 11px; border: 0; border-radius: 9px; background: #fff; color: #146440; font-size: 10px; font-weight: 800; cursor: pointer; }
+.desktop-app-dish-grid { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+.desktop-app-dish-card { min-width: 0; }
+.desktop-app-dish-card img { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+.desktop-app-dish-card:hover img { transform: scale(1.045); }
+.desktop-app-empty-state { display: grid; grid-column: 1/-1; justify-items: center; gap: 9px; padding: 42px 18px; border: 1px dashed #cbd5e1; border-radius: 16px; background: #fff; color: #64748b; font-size: 12px; }
+.desktop-app-empty-state strong { color: #17231d; font-size: 16px; }
+.desktop-app-empty-state button { padding: 8px 13px; border: 0; border-radius: 9px; background: #0e8a56; color: #fff; font-weight: 700; cursor: pointer; }
+.desktop-dish-skeleton,.native-home-dish-skeleton { min-height: 240px; border-radius: 16px; background: linear-gradient(100deg,#edf2ef 20%,#f8faf9 40%,#edf2ef 60%); background-size: 200% 100%; animation: dish-skeleton-shimmer 1.35s linear infinite; }
+.native-mobile-app-shell { width: 100% !important; max-width: none !important; min-height: 100svh; margin: 0 !important; overflow-x: clip !important; box-shadow: none !important; }
+.foodpanda-mobile-root { min-width: 0; overflow-x: clip; }
+.native-home-location { min-width: 0; max-width: calc(100% - 122px); }
+.native-home-location > div:last-child { min-width: 0; }
+.native-home-location > div:last-child > div:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-category-active { position: absolute; z-index: 0; inset: 0; border-radius: 999px; background: linear-gradient(135deg,#d70f64,#b80d56); box-shadow: 0 4px 14px #d70f6459; }
+.native-home-dish-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.native-home-dish-skeleton { min-height: 260px; }
+.native-home-dish-card { min-width: 0; }
+.native-home-dish-card img { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+.native-home-dish-card:hover img { transform: scale(1.04); }
+.mobile-bottom-navbar { display: grid !important; }
+.app-view-toggle { display: inline-flex !important; }
+.desktop-delivery-area { display: grid; gap: 5px; margin-top: 12px; color: #5b6b60; font-size: 10px; font-weight: 700; }
+.desktop-delivery-area select { width: 100%; min-width: 0; padding: 8px 7px; border: 1px solid #d9e7dd; border-radius: 9px; background: #fff; color: #334155; font-size: 10px; }
+.desktop-filter-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: flex-end; background: #0f172a70; backdrop-filter: blur(3px); }
+.desktop-filter-drawer { display: grid; width: min(390px,92vw); align-content: start; gap: 11px; padding: 25px; background: #fff; box-shadow: -20px 0 70px #0f172a30; }
+.desktop-filter-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+.desktop-filter-heading span { color: #16804d; font-size: 9px; font-weight: 800; letter-spacing: 1.4px; }
+.desktop-filter-heading h2 { margin: 5px 0 0; color: #16271d; font: 800 24px "Outfit",sans-serif; }
+.desktop-filter-heading button { width: 34px; height: 34px; border: 1px solid #e1e9e3; border-radius: 50%; background: #fff; color: #53645a; font-size: 22px; cursor: pointer; }
+.desktop-filter-drawer > button { padding: 12px; border: 1px solid #e1e9e3; border-radius: 10px; background: #fff; color: #46564b; text-align: left; font-size: 12px; font-weight: 700; cursor: pointer; }
+.desktop-filter-drawer > button.selected { border-color: #59b17c; background: #effaf2; color: #17653f; }
+.desktop-filter-actions { display: flex; gap: 8px; margin-top: 20px; }
+.desktop-filter-actions button { min-height: 42px; flex: 1; border: 1px solid #cfe0d4; border-radius: 10px; background: #fff; color: #17653f; font-size: 11px; font-weight: 800; cursor: pointer; }
+.desktop-filter-actions button:last-child { border-color: #0e8a56; background: #0e8a56; color: #fff; }
+@keyframes dish-skeleton-shimmer { to { background-position: -200% 0; } }
+
+@media (min-width: 1280px) {
+  .desktop-app-dish-grid { grid-template-columns: repeat(4,minmax(0,1fr)) !important; }
+}
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .desktop-pos-container > aside:first-child { width: 190px !important; padding-inline: 11px !important; }
+  .desktop-app-cart { width: 285px !important; padding-inline: 14px !important; }
+  .desktop-app-workspace { padding: 20px 16px !important; }
+  .desktop-app-top-actions { gap: 5px; }
+  .desktop-app-top-actions > button,.desktop-app-profile-chip { padding-inline: 8px; font-size: 10px; }
+}
+@media (max-width: 1023px) {
+  .app-view-toggle { display: none !important; }
+  .site-header { display: none !important; }
+  .site-footer { padding-bottom: calc(78px + env(safe-area-inset-bottom)) !important; }
+  .native-mobile-app-shell > .mobile-app-main { min-width: 0; padding-bottom: 0 !important; }
+  .native-mobile-app-shell > .mobile-bottom-navbar { position: fixed; bottom: 0; left: 0; width: 100%; max-width: none; }
+  .floating-whatsapp,.floating-assistant-trigger { bottom: calc(82px + env(safe-area-inset-bottom)) !important; }
+  .knowledge-chat-window { bottom: calc(154px + env(safe-area-inset-bottom)) !important; }
+  .foodpanda-mobile-root { padding-bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+  .adaptive-mobile-app { width: 100%; min-height: 100svh; }
+  .adaptive-loading-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 767px) {
+  .native-home-dish-grid { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  .native-home-dish-skeleton { min-height: 230px; }
+  .adaptive-loading-grid { grid-template-columns: minmax(0,1fr); }
+  .adaptive-loading-grid span { min-height: 190px; }
+  .adaptive-loading-title { width: 62%; }
+  .foodpanda-mobile-root { padding-bottom: calc(78px + env(safe-area-inset-bottom)) !important; }
+  .floating-whatsapp,.floating-assistant-trigger { bottom: calc(82px + env(safe-area-inset-bottom)) !important; }
+  .knowledge-chat-window { bottom: calc(154px + env(safe-area-inset-bottom)) !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-dish-skeleton,.native-home-dish-skeleton { animation: none; }
+}
 .faq-list details { padding: 18px 20px; border: 1px solid var(--theme-line); border-radius: 14px; background: var(--surface-glass); }
 .faq-list summary { color: var(--ink); font-weight: 700; cursor: pointer; }
 .faq-list details p { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
 @media (max-width: 640px) { .recent-dishes { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 600px) { .feature-form-grid { grid-template-columns: 1fr; } }
+
+/* Adaptive app workspaces and motion-friendly controls. */
+.desktop-app-shell { height: 100dvh; }
+.desktop-pos-container { height: 100dvh; max-width: 1440px; }
+.desktop-pos-container > aside:first-child,
+.desktop-pos-container > aside:last-child { height: 100dvh; max-height: 100dvh !important; box-sizing: border-box; }
+.desktop-app-workspace { height: 100dvh; max-height: 100dvh !important; overflow-x: hidden; }
+.desktop-app-top-actions { flex-wrap: wrap; }
+.desktop-app-top-actions > button { font: inherit; font-size: 11px; font-weight: 700; }
+.desktop-app-top-actions > .desktop-app-website-toggle { border-color: #9bd5b3; background: #e9f8ef; color: #17653f; }
+.desktop-app-tracker-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 12px 15px; border: 1px solid #d5ecdd; border-radius: 13px; background: #f0faf3; color: #506357; font-size: 11px; }
+.desktop-app-tracker-bar strong { color: #17653f; }
+.desktop-app-tracker-bar a { flex: 0 0 auto; color: #137548; font-weight: 800; text-decoration: none; }
+.desktop-app-tracker-bar a:hover { text-decoration: underline; }
+.desktop-app-dish-heading { min-width: 0; }
+.native-mobile-app-shell { min-height: 100dvh; box-sizing: border-box; }
+.native-mobile-app-shell > header { padding-top: calc(12px + env(safe-area-inset-top, 0px)) !important; }
+.mobile-app-main { width: 100%; min-width: 0; }
+.foodpanda-mobile-root { box-sizing: border-box; min-height: 100dvh !important; }
+.foodpanda-mobile-root > * { min-width: 0; }
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .desktop-app-top-actions { justify-content: flex-start; }
+  .desktop-app-tracker-bar { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 1023px) {
+  .desktop-app-shell { height: auto; min-height: 100dvh; }
+  .desktop-app-tracker-bar { flex-wrap: wrap; }
+  .foodpanda-mobile-root { width: 100%; max-width: 100%; margin-inline: 0; }
+}

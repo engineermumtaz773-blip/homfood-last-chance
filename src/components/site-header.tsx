@@ -180,8 +180,10 @@ export function SiteHeader() {
             </motion.div>}
           </AnimatePresence>
         </div>
-        <button
+        <motion.button
           type="button"
+          className="app-view-toggle"
+          whileTap={{ scale: 0.97 }}
           onClick={() => {
             window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: "app" }));
           }}
@@ -202,7 +204,7 @@ export function SiteHeader() {
         >
           <span>📱</span>
           <span>App View</span>
-        </button>
+        </motion.button>
         <AppInstallActions variant="compact" />
       </nav>
       <div className="profile-menu" ref={profileMenuRef}>

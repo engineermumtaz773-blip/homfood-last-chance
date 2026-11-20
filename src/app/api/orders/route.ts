@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   try {
     assertSupabaseConfigured();
     const { searchParams } = new URL(request.url);
-    const number = searchParams.get("number")?.trim() || "";
+    const number = searchParams.get("number")?.trim() || searchParams.get("id")?.trim() || searchParams.get("order")?.trim() || "";
     const phone = searchParams.get("phone")?.trim() || "";
 
     if (number) {
@@ -122,26 +122,35 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
     const syncedOrder = await insertSupabaseOrder(order);
+    const warnings: string[] = [];
 
-    // Automatically record customer profile in DB
     if (body.customerEmail && body.customerEmail.includes("@")) {
-      const customerInput = {
-        name: body.customerName,
-        email: body.customerEmail,
-        phone: body.customerPhone,
-        addresses: [`${body.address}, ${body.area || "Bahawalpur"}`],
-      };
-      await upsertSupabaseCustomer(customerInput);
+      try {
+        await upsertSupabaseCustomer({
+          name: body.customerName,
+          email: body.customerEmail,
+          phone: body.customerPhone,
+          addresses: [`${body.address}, ${body.area || "Bahawalpur"}`],
+        });
+      } catch (error) {
+        console.error("[ORDER_CUSTOMER_SYNC_ERROR]", { orderNumber: syncedOrder.number, error });
+        warnings.push("The order was saved, but the customer profile could not be updated.");
+      }
     }
-    await insertSupabaseNotification({
-      type: "order_created",
-      title: `New order ${syncedOrder.number}`,
-      body: `${syncedOrder.customerName} placed a new order.`,
-      orderNumber: syncedOrder.number,
-      priority: "high",
-    });
+    try {
+      await insertSupabaseNotification({
+        type: "order_created",
+        title: `New order ${syncedOrder.number}`,
+        body: `${syncedOrder.customerName} placed a new order.`,
+        orderNumber: syncedOrder.number,
+        priority: "high",
+      });
+    } catch (error) {
+      console.error("[ORDER_NOTIFICATION_ERROR]", { orderNumber: syncedOrder.number, error });
+      warnings.push("The order was saved, but the kitchen notification could not be created.");
+    }
 
-    return NextResponse.json({ ok: true, order: syncedOrder });
+    return NextResponse.json({ ok: true, order: syncedOrder, warnings }, { status: 201 });
   } catch (error) {
     console.error("[CREATE_ORDER_ERROR]", error);
     return supabaseErrorResponse(error, "Failed to create order");
@@ -185,19 +194,25 @@ export async function PATCH(request: NextRequest) {
       adminNotes: body.adminNotes,
       adminMediaUrl: body.adminMediaUrl,
     });
+    const warnings: string[] = [];
     if (remoteUpdated) {
-      await insertSupabaseNotification({
-        type: "order_status",
-        title: `Order ${remoteUpdated.number} updated`,
-        body: `Order status changed to ${remoteUpdated.status}.`,
-        orderNumber: remoteUpdated.number,
-      });
+      try {
+        await insertSupabaseNotification({
+          type: "order_status",
+          title: `Order ${remoteUpdated.number} updated`,
+          body: `Order status changed to ${remoteUpdated.status}.`,
+          orderNumber: remoteUpdated.number,
+        });
+      } catch (error) {
+        console.error("[ORDER_STATUS_NOTIFICATION_ERROR]", { orderNumber: remoteUpdated.number, error });
+        warnings.push("The order update was saved, but its admin notification could not be created.");
+      }
     }
     if (!remoteUpdated) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true, order: remoteUpdated });
+    return NextResponse.json({ ok: true, order: remoteUpdated, warnings });
   } catch (error) {
     console.error("[UPDATE_ORDER_ERROR]", error);
     return supabaseErrorResponse(error, "Failed to update order status");

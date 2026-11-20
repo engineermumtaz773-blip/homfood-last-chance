@@ -177,7 +177,9 @@ export function CustomerAuthModal({
       window.location.assign(data.url);
     } catch (err) {
       console.error("[GOOGLE_OAUTH_START_ERROR]", err);
-      setError("Google sign-in is unavailable right now. Please use email verification or phone OTP.");
+      setError(err instanceof Error
+        ? `Google sign-in could not start: ${err.message}`
+        : "Google sign-in could not start. Please use email verification or phone OTP.");
       setGoogleBusy(false);
     }
   };

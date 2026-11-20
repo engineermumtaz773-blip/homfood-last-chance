@@ -27,11 +27,34 @@ const emptyProfile: CustomerProfile = {
   preferredPayment: "Digital Payment (Raast)",
 };
 
-type ActiveTab = "details" | "addresses" | "payment" | "orders" | "vouchers";
+type ActiveTab = "details" | "addresses" | "payment" | "orders" | "requests" | "vouchers";
+
+type MealPlanRequest = {
+  id: string;
+  plan_type: string;
+  days_of_week: string[];
+  meal_slot: string;
+  status: string;
+  start_date: string;
+  end_date?: string | null;
+};
+
+type ReservationRequest = {
+  id: string;
+  guest_name: string;
+  party_size: number;
+  slot_time: string;
+  status: string;
+  notes?: string;
+};
 
 export function ProfilePortal() {
   const [profile, setProfile] = useState<CustomerProfile>(emptyProfile);
   const [orders, setOrders] = useState<OrderRequest[]>([]);
+  const [mealPlans, setMealPlans] = useState<MealPlanRequest[]>([]);
+  const [reservations, setReservations] = useState<ReservationRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState("");
   const [addressInput, setAddressInput] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -40,6 +63,30 @@ export function ProfilePortal() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("details");
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadCustomerRequests = useCallback(async () => {
+    setRequestsLoading(true);
+    try {
+      const [plansResponse, reservationsResponse] = await Promise.all([
+        fetch("/api/subscriptions", { cache: "no-store" }),
+        fetch("/api/reservations", { cache: "no-store" }),
+      ]);
+      const [plansData, reservationsData] = await Promise.all([
+        plansResponse.json() as Promise<{ subscriptions?: MealPlanRequest[]; error?: string }>,
+        reservationsResponse.json() as Promise<{ reservations?: ReservationRequest[]; error?: string }>,
+      ]);
+      if (!plansResponse.ok) throw new Error(plansData.error || `Meal plans could not be loaded (HTTP ${plansResponse.status}).`);
+      if (!reservationsResponse.ok) throw new Error(reservationsData.error || `Reservations could not be loaded (HTTP ${reservationsResponse.status}).`);
+      setMealPlans(Array.isArray(plansData.subscriptions) ? plansData.subscriptions : []);
+      setReservations(Array.isArray(reservationsData.reservations) ? reservationsData.reservations : []);
+      setRequestsError("");
+    } catch (requestError) {
+      console.error("Could not load customer meal plans and reservations.", requestError);
+      setRequestsError(requestError instanceof Error ? requestError.message : "Customer requests could not be loaded.");
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, []);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -76,9 +123,12 @@ export function ProfilePortal() {
       if (saved) setProfile(saved);
       if (!saved || !((saved.emailVerified && saved.email) || (saved.phoneVerified && saved.phone))) {
         setOrders([]);
+        setMealPlans([]);
+        setReservations([]);
         return;
       }
       void loadCustomerOrders().then(setOrders).catch((error: unknown) => console.error("Could not load customer orders from Supabase.", error));
+      void loadCustomerRequests();
     };
 
     syncProfile();
@@ -91,8 +141,11 @@ export function ProfilePortal() {
           saveCustomerProfile(data.customer, false);
           setProfile(data.customer);
           void loadCustomerOrders().then(setOrders).catch((loadError: unknown) => console.error("Could not load customer orders from Supabase.", loadError));
+          void loadCustomerRequests();
         } else {
           setOrders([]);
+          setMealPlans([]);
+          setReservations([]);
         }
       })
       .catch(() => undefined);
@@ -101,8 +154,14 @@ export function ProfilePortal() {
       const custom = e as CustomEvent<CustomerProfile | null>;
       if (custom.detail) {
         setProfile(custom.detail);
+        if ((custom.detail.emailVerified && custom.detail.email) || (custom.detail.phoneVerified && custom.detail.phone)) {
+          void loadCustomerRequests();
+        }
       } else {
         setProfile(emptyProfile);
+        setOrders([]);
+        setMealPlans([]);
+        setReservations([]);
       }
     };
 
@@ -113,20 +172,24 @@ export function ProfilePortal() {
       if (detail?.table === "orders" && currentCustomer && ((currentCustomer.emailVerified && currentCustomer.email) || (currentCustomer.phoneVerified && currentCustomer.phone))) {
         void loadCustomerOrders().then(setOrders).catch((loadError: unknown) => console.error("Could not refresh customer orders.", loadError));
       }
+      if ((detail?.table === "reservations" || detail?.table === "meal_subscriptions") && currentCustomer && ((currentCustomer.emailVerified && currentCustomer.email) || (currentCustomer.phoneVerified && currentCustomer.phone))) {
+        void loadCustomerRequests();
+      }
     };
     window.addEventListener(REALTIME_SYNC_EVENT, refreshOrders);
     return () => {
       window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuthChanged);
       window.removeEventListener(REALTIME_SYNC_EVENT, refreshOrders);
     };
-  }, []);
+  }, [loadCustomerRequests]);
 
   const handleAuthSuccess = useCallback((updated: CustomerProfile) => {
     setProfile(updated);
+    void loadCustomerRequests();
     setMessage("Welcome! Your account has been verified successfully.");
     setError("");
     setAuthModalOpen(false);
-  }, []);
+  }, [loadCustomerRequests]);
 
   async function handleSignOut() {
     try {
@@ -139,6 +202,9 @@ export function ProfilePortal() {
       }
       clearCustomerProfile();
       setProfile(emptyProfile);
+      setOrders([]);
+      setMealPlans([]);
+      setReservations([]);
       setMessage("You have safely signed out of your customer account.");
       setError("");
     } catch {
@@ -673,6 +739,7 @@ export function ProfilePortal() {
             ["addresses", `Delivery Addresses (${profile.addresses.length})`],
             ["payment", "Payment Preference"],
             ["orders", `Order Requests (${orders.length})`],
+            ["requests", `Meal Plans & Reservations (${mealPlans.length + reservations.length})`],
             ["vouchers", "Special Vouchers"],
           ] as const
         ).map(([tab, label]) => (
@@ -1090,6 +1157,31 @@ export function ProfilePortal() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === "requests" && (
+          <div>
+            <h2 style={{ margin: "0 0 6px", fontSize: 20, color: "#0f172a" }}>Meal plans &amp; reservations</h2>
+            <p style={{ margin: "0 0 18px", color: "#64748b", fontSize: 14 }}>Requests linked to your verified customer account.</p>
+            {requestsError && <p className="form-error" role="alert">{requestsError}</p>}
+            {!isVerified && <p role="status">Sign in with a verified account to view saved meal plans and reservations.</p>}
+            {requestsLoading && <p role="status">Loading your requests…</p>}
+            {isVerified && !requestsLoading && !requestsError && !mealPlans.length && !reservations.length && <p>No meal plans or reservations are linked to your account yet.</p>}
+            {mealPlans.length > 0 && <section style={{ marginTop: 18 }}>
+              <h3>Meal plans</h3>
+              {mealPlans.map((plan) => <article key={plan.id} className="admin-recent-order" style={{ marginBottom: 8 }}>
+                <span><strong>{plan.plan_type} · {plan.meal_slot}</strong><small>{(plan.days_of_week || []).join(", ")} · {plan.start_date}{plan.end_date ? ` – ${plan.end_date}` : ""}</small></span>
+                <span className="admin-recent-status">{plan.status}</span>
+              </article>)}
+            </section>}
+            {reservations.length > 0 && <section style={{ marginTop: 18 }}>
+              <h3>Reservations</h3>
+              {reservations.map((reservation) => <article key={reservation.id} className="admin-recent-order" style={{ marginBottom: 8 }}>
+                <span><strong>{reservation.party_size} guest{reservation.party_size === 1 ? "" : "s"}</strong><small>{new Date(reservation.slot_time).toLocaleString()}{reservation.notes ? ` · ${reservation.notes}` : ""}</small></span>
+                <span className="admin-recent-status">{reservation.status}</span>
+              </article>)}
+            </section>}
           </div>
         )}
 

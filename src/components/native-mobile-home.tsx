@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import type { Dish } from "@/lib/data";
 import { useLiveDishes } from "@/hooks/use-live-dishes";
 import { useCart } from "@/components/cart-provider";
@@ -21,6 +21,8 @@ const CATEGORIES = [
   { id: "Breakfast", name: "Breakfast", icon: "🍳" },
   { id: "Lunch", name: "Lunch", icon: "🍱" },
   { id: "Dinner", name: "Dinner", icon: "🍛" },
+  { id: "Rice & Biryani", name: "Rice & Biryani", icon: "🍚" },
+  { id: "Home Specials", name: "Home Specials", icon: "🏠" },
   { id: "Daily Deals", name: "Daily Deals", icon: "🏷️" },
   { id: "BBQ & Karahi", name: "BBQ & Karahi", icon: "🍖" },
   { id: "Fast Food", name: "Fast Food", icon: "🍔" },
@@ -106,6 +108,11 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
   const [cancellingOrder, setCancellingOrder] = useState(false);
   const [showCancelPrompt, setShowCancelPrompt] = useState(false);
   const [orderCancelReason, setOrderCancelReason] = useState("Placed by mistake");
+  const activeOrderNumber = activeOrder?.number;
+  const activeOrderPlacedAt = activeOrder?.placedAt;
+  const liveOrderCreatedAt = liveOrderStatus?.created_at;
+  const liveOrderStatusName = liveOrderStatus?.status;
+  const canCancelByStatus = liveOrderStatusName === "new" || liveOrderStatusName === "confirmed";
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -177,31 +184,30 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
     };
   }, [activeOrder, customer?.phone, isTrackingModalOpen]);
 
-  // Compute 2-minute cancellation countdown
+  // Keep the mobile cancellation timer aligned with the server-enforced window.
   useEffect(() => {
-    if (!activeOrder || !liveOrderStatus) return;
-    if (
-      liveOrderStatus.status === "cancelled" ||
-      liveOrderStatus.status === "completed" ||
-      liveOrderStatus.status === "arriving"
-    ) {
+    if (!activeOrderNumber || !liveOrderStatusName) {
+      const frame = window.requestAnimationFrame(() => setCancelCountdown(null));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    if (!canCancelByStatus) {
       const frame = window.requestAnimationFrame(() => setCancelCountdown(null));
       return () => window.cancelAnimationFrame(frame);
     }
     const orderTime = new Date(
-      liveOrderStatus.created_at || liveOrderStatus.updated_at || activeOrder.placedAt || Date.now()
+      liveOrderCreatedAt || activeOrderPlacedAt || Date.now()
     ).getTime();
 
     const updateTimer = () => {
       const elapsed = Math.floor((Date.now() - orderTime) / 1000);
-      const remaining = Math.max(0, 120 - elapsed);
+      const remaining = Math.max(0, 300 - elapsed);
       setCancelCountdown(remaining);
     };
 
     updateTimer();
     const timer = setInterval(updateTimer, 1000);
     return () => clearInterval(timer);
-  }, [activeOrder, liveOrderStatus]);
+  }, [activeOrderNumber, activeOrderPlacedAt, liveOrderCreatedAt, liveOrderStatusName, canCancelByStatus]);
 
   // In-app order cancellation handler
   const handleCancelActiveOrder = async () => {
@@ -255,21 +261,24 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
           body: text,
         }),
       });
-      if (res.ok) {
-        const data = (await res.json()) as { message?: OrderMessage };
-        if (data.message) {
-          setOrderMessages((prev) => [...prev, data.message as OrderMessage]);
-          playAlertChime("pop");
-          broadcastRealtimeEvent({
-            type: "chat_message",
-            orderNumber: activeOrder.number,
-            message: text,
-          });
-        }
-        setChatDraft("");
+      const data = await res.json() as { message?: OrderMessage; warnings?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `Message could not be sent (HTTP ${res.status}).`);
+      if (data.message) {
+        setOrderMessages((prev) => [...prev, data.message as OrderMessage]);
+        playAlertChime("pop");
+        broadcastRealtimeEvent({
+          type: "chat_message",
+          orderNumber: activeOrder.number,
+          message: text,
+        });
       }
+      setChatDraft("");
+      setToastMessage(data.warnings?.[0] || "Message sent to the kitchen.");
+      window.setTimeout(() => setToastMessage(null), 2500);
     } catch (err) {
-      console.warn("Failed to send message:", err);
+      console.error("Failed to send order message:", err);
+      setToastMessage(err instanceof Error ? err.message : "Message could not be sent.");
+      window.setTimeout(() => setToastMessage(null), 3500);
     } finally {
       setChatSending(false);
     }
@@ -303,20 +312,23 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
       .filter((dish) => {
         // Category filtering
         let matchesCategory = true;
-        if (selectedCategory === "Favorites") {
+        const normalizedCategory = selectedCategory.trim().toLocaleLowerCase();
+        if (normalizedCategory === "favorites") {
           matchesCategory = favoriteIds.includes(dish.id);
-        } else if (selectedCategory === "Daily Deals") {
+        } else if (normalizedCategory === "daily deals") {
           matchesCategory =
-            dish.category.toLowerCase().includes("deal") ||
-            Boolean(dish.dietaryTags && dish.dietaryTags.some((t) => t.toLowerCase().includes("deal")));
-        } else if (selectedCategory === "BBQ & Karahi") {
+            [dish.category, ...(dish.categories || [])].some((category) => category.trim().toLocaleLowerCase().includes("deal")) ||
+            Boolean(dish.dietaryTags && dish.dietaryTags.some((tag) => tag.trim().toLocaleLowerCase().includes("deal")));
+        } else if (normalizedCategory === "bbq & karahi") {
+          const categories = [dish.category, ...(dish.categories || [])].map((category) => category.trim().toLowerCase());
           matchesCategory =
-            dish.category.toLowerCase().includes("karahi") ||
-            dish.category.toLowerCase().includes("bbq") ||
+            categories.some((category) => category.includes("karahi") || category.includes("bbq")) ||
             dish.name.toLowerCase().includes("karahi") ||
             dish.name.toLowerCase().includes("tikka");
-        } else if (selectedCategory !== "All") {
-          matchesCategory = dish.category.toLowerCase() === selectedCategory.toLowerCase();
+        } else if (normalizedCategory !== "all") {
+          const category = normalizedCategory;
+          matchesCategory = [dish.category, ...(dish.categories || [])]
+            .some((value) => value.trim().toLowerCase() === category);
         }
 
         // Search query
@@ -325,7 +337,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
           !query ||
           dish.name.toLowerCase().includes(query) ||
           dish.description.toLowerCase().includes(query) ||
-          dish.category.toLowerCase().includes(query);
+          [dish.category, ...(dish.categories || [])].some((category) => category.toLowerCase().includes(query));
 
         // Price filter
         const price = dish.portions?.[0]?.price || 0;
@@ -375,12 +387,16 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
     (filterRating !== "all" ? 1 : 0);
 
   return (
+    <MotionConfig reducedMotion="user">
     <div
       className="foodpanda-mobile-root"
       style={{
         background: "#f8fafc",
-        minHeight: "100vh",
-        paddingBottom: "80px",
+        minHeight: "100dvh",
+        width: "100%",
+        maxWidth: "1440px",
+        marginInline: "auto",
+        paddingBottom: "calc(80px + env(safe-area-inset-bottom))",
         fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
       }}
     >
@@ -428,7 +444,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
           top: 0,
           zIndex: 45,
           background: "#ffffff",
-          padding: "10px 16px 12px",
+          padding: "calc(10px + env(safe-area-inset-top, 0px)) 16px 12px",
           borderBottom: "1px solid #f1f5f9",
           boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
         }}
@@ -444,6 +460,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
         >
           {/* Location Selector */}
           <button
+            className="native-home-location"
             type="button"
             onClick={() => setIsAreaPickerOpen(true)}
             style={{
@@ -518,8 +535,9 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
             </button>
 
             {/* User Profile Avatar / Sign In Shortcut */}
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.97 }}
               onClick={() => {
                 if (customer?.emailVerified) {
                   window.location.href = "/profile";
@@ -588,7 +606,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               >
                 {customer?.name ? customer.name.split(" ")[0] : "Sign In"}
               </span>
-            </button>
+            </motion.button>
           </div>
         </div>
 
@@ -631,8 +649,9 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               }}
             />
             {searchQuery && (
-              <button
+              <motion.button
                 type="button"
+                whileTap={{ scale: 0.97 }}
                 onClick={() => setSearchQuery("")}
                 style={{
                   position: "absolute",
@@ -651,13 +670,14 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                 }}
               >
                 ✕
-              </button>
+              </motion.button>
             )}
           </div>
 
           {/* Filter Trigger Button */}
-          <button
+          <motion.button
             type="button"
+            whileTap={{ scale: 0.97 }}
             onClick={() => setIsFilterModalOpen(true)}
             style={{
               position: "relative",
@@ -686,7 +706,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                 }}
               />
             )}
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -744,8 +764,9 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               <span>🛵</span>
               <span>Track an existing order or test live tracker</span>
             </div>
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.97 }}
               onClick={() => {
                 const demoOrder = {
                   number: "HMF-ORD-" + Math.floor(1000 + Math.random() * 9000),
@@ -784,7 +805,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               }}
             >
               Test Tracker
-            </button>
+            </motion.button>
           </div>
         </div>
       )}
@@ -842,8 +863,9 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
             >
               {PROMOS[activePromoIndex].subtitle}
             </p>
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.97 }}
               onClick={() => setSelectedCategory(PROMOS[activePromoIndex].filter)}
               style={{
                 background: "#ffffff",
@@ -858,7 +880,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               }}
             >
               {PROMOS[activePromoIndex].action} ➔
-            </button>
+            </motion.button>
           </div>
 
           <div
@@ -918,36 +940,38 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
             return (
               <motion.button
                 key={cat.id}
+                whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={() => setSelectedCategory(cat.id)}
+                aria-pressed={isSelected}
                 style={{
+                  position: "relative",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
                   padding: "8px 14px",
                   borderRadius: "9999px",
-                  border: isSelected ? "none" : "1px solid #e2e8f0",
-                  background: isSelected
-                    ? "linear-gradient(135deg, #d70f64 0%, #b80d56 100%)"
-                    : "#ffffff",
+                  border: isSelected ? "1px solid transparent" : "1px solid #e2e8f0",
+                  background: "transparent",
                   color: isSelected ? "#ffffff" : "#475569",
                   fontWeight: isSelected ? 800 : 600,
                   fontSize: "12px",
                   whiteSpace: "nowrap",
                   cursor: "pointer",
-                  boxShadow: isSelected
-                    ? "0 4px 14px rgba(215, 15, 100, 0.35)"
-                    : "0 2px 4px rgba(0,0,0,0.03)",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.03)",
                   flexShrink: 0,
                   transition: "all 0.2s ease",
                 }}
               >
-                <span style={{ fontSize: "14px" }}>{cat.icon}</span>
-                <span>{cat.name}</span>
+                {isSelected && <motion.span layoutId="native-category-active" className="native-category-active" />}
+                <span style={{ position: "relative", zIndex: 1, fontSize: "14px" }}>{cat.icon}</span>
+                <span style={{ position: "relative", zIndex: 1 }}>{cat.name}</span>
                 {cat.id === "Favorites" && favoriteIds.length > 0 && (
                   <span
                     style={{
+                      position: "relative",
+                      zIndex: 1,
                       background: isSelected ? "#ffffff" : "#d70f64",
                       color: isSelected ? "#d70f64" : "#ffffff",
                       borderRadius: "50%",
@@ -1009,7 +1033,19 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
 
       {/* 6. 2-COLUMN SIGNATURE DISHES GRID WITH 3D CARD DEPTH */}
       <section style={{ padding: "0 16px" }}>
-        {filteredDishes.length === 0 ? (
+        {liveCatalog.loading && liveCatalog.dishes.length === 0 ? (
+          <div className="native-home-dish-grid" aria-label="Loading dishes">
+            {Array.from({ length: 4 }, (_, index) => (
+              <motion.div
+                key={`dish-skeleton-${index}`}
+                className="native-home-dish-skeleton"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: index * 0.06 }}
+              />
+            ))}
+          </div>
+        ) : filteredDishes.length === 0 ? (
           <div
             style={{
               textAlign: "center",
@@ -1031,7 +1067,10 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               onClick={() => {
                 setSelectedCategory("All");
                 setSearchQuery("");
+                setFilterSort("popular");
                 setFilterPrice("all");
+                setFilterSpeed("all");
+                setFilterRating("all");
               }}
               style={{
                 marginTop: "14px",
@@ -1050,13 +1089,14 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
           </div>
         ) : (
           <div
+            className="native-home-dish-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(2, 1fr)",
               gap: "12px",
             }}
           >
-            {filteredDishes.map((dish) => {
+            {filteredDishes.map((dish, index) => {
               const portion = dish.portions?.[0] || { name: "Standard", price: 250 };
               const available = dish.available !== false;
               const isFav = favoriteIds.includes(dish.id);
@@ -1064,8 +1104,13 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
               return (
                 <motion.div
                   key={dish.id}
+                  layout
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: available ? 1 : 0.65, y: 0 }}
                   whileHover={{ y: -3 }}
                   whileTap={{ scale: 0.98 }}
+                  transition={{ duration: 0.24, delay: Math.min(index * 0.025, 0.3) }}
+                  className="native-home-dish-card"
                   onClick={() => available && handleOpenDish(dish)}
                   style={{
                     background: "#ffffff",
@@ -1993,7 +2038,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                 </div>
               </div>
 
-              {/* 2-Minute Cancellation Countdown Window */}
+              {/* Five-minute cancellation countdown window */}
               {liveOrderStatus?.status !== "cancelled" && liveOrderStatus?.status !== "completed" && (
                 <div
                   style={{
@@ -2007,7 +2052,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                     marginBottom: "14px",
                   }}
                 >
-                  {cancelCountdown !== null && cancelCountdown > 0 ? (
+                  {canCancelByStatus && cancelCountdown !== null && cancelCountdown > 0 ? (
                     <div>
                       <div
                         style={{
@@ -2021,10 +2066,10 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                           <span style={{ fontSize: "18px" }}>⏱️</span>
                           <div>
                             <strong style={{ display: "block", fontSize: "12px", color: "#991b1b" }}>
-                              2-Min Instant Cancellation Window
+                              5-Minute Order Cancellation Window
                             </strong>
                             <span style={{ fontSize: "11px", color: "#b91c1c", fontWeight: 700 }}>
-                              Remaining: {Math.floor(cancelCountdown / 60)}:
+                              Remaining: {Math.floor(cancelCountdown / 60).toString().padStart(2, "0")}:
                               {(cancelCountdown % 60).toString().padStart(2, "0")}
                             </span>
                           </div>
@@ -2140,8 +2185,11 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                     >
                       <span>🔒</span>
                       <span>
-                        2-minute cancellation window has passed. Meals are actively cooking in the
-                        kitchen. Contact Rider or Admin above for urgent help.
+                        {canCancelByStatus
+                          ? cancelCountdown === null
+                            ? "Checking the 5-minute cancellation window…"
+                            : "The 5-minute cancellation window has expired. Contact the kitchen for help."
+                          : "Cancellation is locked because preparation or delivery has started. Contact the kitchen for help."}
                       </span>
                     </div>
                   )}
@@ -2305,5 +2353,6 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
         )}
       </AnimatePresence>
     </div>
+    </MotionConfig>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import { useCart } from "@/components/cart-provider";
 import { useSiteSettings, type Locale, type Theme } from "@/components/site-settings";
 import { readCustomerProfile, CUSTOMER_AUTH_EVENT, type CustomerProfile } from "@/lib/customer";
@@ -14,7 +14,7 @@ import {
 
 export const OPEN_MOBILE_CART_EVENT = "hmf_open_mobile_cart";
 
-export function MobileAppShell({ children }: { children: React.ReactNode }) {
+export function MobileAppShell({ children, hideHeader = false }: { children: React.ReactNode; hideHeader?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { items } = useCart();
@@ -138,12 +138,13 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
       active: pathname === "/" || pathname === "/mobile" || pathname === "/app/mobile",
     },
     { label: "Menu", href: "/menu", icon: "🍲", active: pathname === "/menu" },
-    { label: "Cart", isCart: true, icon: "🛍️", active: false },
     { label: "Orders", href: "/track-order", icon: "📦", active: pathname === "/track-order" },
-    { label: "Account", href: "/profile", icon: "👤", active: pathname === "/profile" },
+    { label: "Cart", isCart: true, icon: "🛍️", active: false },
+    { label: "Profile", href: "/profile", icon: "👤", active: pathname === "/profile" },
   ];
 
   return (
+    <MotionConfig reducedMotion="user">
     <div
       className="native-mobile-app-shell"
       onTouchStart={handleTouchStart}
@@ -156,9 +157,10 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
         flexDirection: "column",
         background: theme === "dark" ? "#0b100e" : "#fdfefe",
         color: theme === "dark" ? "#f1f5f9" : "#0f172a",
-        boxShadow: "0 0 40px rgba(16, 88, 54, 0.25), inset 0 0 20px rgba(255, 191, 0, 0.15)",
-        maxWidth: "430px",
-        margin: "0 auto",
+        width: "100%",
+        maxWidth: "100%",
+        margin: 0,
+        boxShadow: "none",
         overflowX: "hidden",
       }}
     >
@@ -225,7 +227,7 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* 1. Fixed Native Mobile Top Header */}
-      <header
+      {!hideHeader && <header
         style={{
           position: "sticky",
           top: !online ? "34px" : 0,
@@ -361,7 +363,7 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
             <span style={{ width: 18, height: 2, borderRadius: 2, background: theme === "dark" ? "#e2e8f0" : "#1e293b" }} />
           </button>
         </div>
-      </header>
+      </header>}
 
       {/* Notifications Popover Dropdown */}
       <AnimatePresence>
@@ -401,7 +403,7 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
       </AnimatePresence>
 
       {/* Main Page Viewport */}
-      <main style={{ flex: 1, paddingBottom: "88px" }}>{children}</main>
+      <main className="mobile-app-main" style={{ flex: 1, paddingBottom: hideHeader ? 0 : "88px" }}>{children}</main>
 
       {/* 2. Sliding Navigation & Preferences Drawer */}
       <AnimatePresence>
@@ -637,15 +639,16 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
 
       {/* 3. Bottom Native Navigation Bar */}
       <nav
+        className="mobile-bottom-navbar"
         role="navigation"
         aria-label="Mobile native bottom navigation"
         style={{
           position: "fixed",
           bottom: 0,
-          left: "50%",
-          transform: "translateX(-50%)",
+          left: 0,
+          transform: "none",
           width: "100%",
-          maxWidth: "600px",
+          maxWidth: "none",
           zIndex: 60,
           display: "grid",
           gridTemplateColumns: "repeat(5, 1fr)",
@@ -768,5 +771,6 @@ export function MobileAppShell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
     </div>
+    </MotionConfig>
   );
 }

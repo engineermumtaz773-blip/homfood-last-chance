@@ -6,9 +6,11 @@ import { AdminOrdersManager } from "@/components/admin-orders-manager";
 import { AdminCategoriesManager } from "@/components/admin-categories-manager";
 import { AdminAnalyticsManager } from "@/components/admin-analytics-manager";
 import { AdminSettingsManager } from "@/components/admin-settings-manager";
+import { AdminRequestsManager } from "@/components/admin-requests-manager";
 
 const sections = [
   { slug: "orders", title: "Orders", description: "Manage customer orders, update delivery status, and assign dispatch riders." },
+  { slug: "requests", title: "Meal Plans & Reservations", description: "Review customer meal-plan and table-reservation requests." },
   { slug: "menu", title: "Menu", description: "Add, edit, and organize the dishes shown on your public menu." },
   { slug: "deals", title: "Daily Deals", description: "Manage dynamic daily deals and special bundle pricing in the store database." },
   { slug: "categories", title: "Categories", description: "Create, rename, and manage dish categories in real-time." },
@@ -30,6 +32,7 @@ export default async function AdminSectionPage({ params }: { params: Promise<{ s
   return (
     <div className="admin-section-content">
       {currentSection.slug === "orders" && <AdminOrdersManager />}
+      {currentSection.slug === "requests" && <AdminRequestsManager />}
       {currentSection.slug === "menu" && <AdminMenuManager />}
       {currentSection.slug === "deals" && <AdminDealsManager />}
       {currentSection.slug === "categories" && <AdminCategoriesManager />}

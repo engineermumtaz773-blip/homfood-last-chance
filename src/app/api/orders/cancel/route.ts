@@ -44,6 +44,13 @@ export async function POST(request: NextRequest) {
     if (outcome.result === "not_found") {
       return NextResponse.json({ ok: false, error: "Order not found for that phone number." }, { status: 404 });
     }
+    if (outcome.result === "expired") {
+      return NextResponse.json({
+        ok: false,
+        error: "The 5-minute cancellation window has expired. Please contact the kitchen for help.",
+        order: outcome.order,
+      }, { status: 409 });
+    }
     if (outcome.result === "locked") {
       return NextResponse.json({
         ok: false,

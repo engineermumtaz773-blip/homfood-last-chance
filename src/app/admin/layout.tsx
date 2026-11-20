@@ -32,7 +32,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         playAlertChime("alert");
         setAdminAlert({
           title: `🚨 Order Cancelled: ${event.orderNumber || "Order"}`,
-          desc: event.message || "Customer requested immediate order cancellation within the 2-minute window.",
+          desc: event.message || "Customer requested order cancellation within the 5-minute window.",
           type: "alert",
         });
       } else if (event.type === "order_created") {
@@ -257,6 +257,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const navItems = [
     { href: "/admin", label: "Dashboard", icon: "◫" },
     { href: "/admin/orders", label: "Orders", icon: "▤" },
+    { href: "/admin/requests", label: "Requests", icon: "◷" },
     { href: "/admin/menu", label: "Menu", icon: "♨" },
     { href: "/admin/deals", label: "Daily Deals", icon: "✦" },
     { href: "/admin/categories", label: "Categories", icon: "◈" },

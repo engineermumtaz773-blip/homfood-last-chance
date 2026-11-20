@@ -36,13 +36,13 @@ export function SubscriptionForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planType, daysOfWeek: days, mealSlot, startDate, ...(endDate ? { endDate } : {}) }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await response.json() as { error?: string; subscription?: { id?: string; status?: string } };
       if (response.status === 401) {
         window.dispatchEvent(new CustomEvent("hmf_open_auth_modal", { detail: { mode: "login", reason: t("subscriptionSignInReason") } }));
         throw new Error(data.error || t("subscriptionSignInRequired"));
       }
       if (!response.ok) throw new Error(data.error || "Could not save your meal plan.");
-      setMessage(t("subscriptionSuccess"));
+      setMessage(`${t("subscriptionSuccess")}${data.subscription?.id ? ` Request ${data.subscription.id} · ${data.subscription.status || "pending"}.` : ""}`);
       setError("");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not save your meal plan.");

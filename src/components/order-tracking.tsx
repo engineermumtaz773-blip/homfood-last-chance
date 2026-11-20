@@ -57,6 +57,8 @@ const STAGE_DETAILS = [
   },
 ];
 
+const ORDER_CANCELLATION_WINDOW_SECONDS = 5 * 60;
+
 export function OrderTracking() {
   const { t } = useSiteSettings();
   const [orders, setOrders] = useState<OrderRequest[]>([]);
@@ -77,7 +79,12 @@ export function OrderTracking() {
   const [savingCustomerNote, setSavingCustomerNote] = useState(false);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [copyMessage, setCopyMessage] = useState("");
-  const canCancel = liveOrder?.status === "new" || liveOrder?.status === "confirmed";
+  const [cancelSecondsLeft, setCancelSecondsLeft] = useState<number | null>(null);
+  const liveOrderNumber = liveOrder?.number;
+  const liveOrderCreatedAt = liveOrder?.created_at;
+  const liveOrderStatusName = liveOrder?.status;
+  const canCancelByStatus = liveOrderStatusName === "new" || liveOrderStatusName === "confirmed";
+  const canCancel = canCancelByStatus && cancelSecondsLeft !== null && cancelSecondsLeft > 0;
 
   async function handleCancelOrder() {
     if (!liveOrder || cancelling) return;
@@ -177,6 +184,25 @@ export function OrderTracking() {
   }, []);
 
   useEffect(() => {
+    if (!liveOrderNumber || !canCancelByStatus) {
+      const frame = window.requestAnimationFrame(() => setCancelSecondsLeft(null));
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    const createdAt = Date.parse(liveOrderCreatedAt || "");
+    const updateCountdown = () => {
+      const remaining = Number.isFinite(createdAt)
+        ? Math.max(0, Math.ceil((createdAt + ORDER_CANCELLATION_WINDOW_SECONDS * 1000 - Date.now()) / 1000))
+        : 0;
+      setCancelSecondsLeft(remaining);
+    };
+
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [liveOrderNumber, liveOrderCreatedAt, liveOrderStatusName, canCancelByStatus]);
+
+  useEffect(() => {
     const target = lookupTarget;
     if (!target) return;
     const targetNumber = target.number;
@@ -190,10 +216,9 @@ export function OrderTracking() {
         if (!active) return;
         setLiveOrder(status);
         const messagesResponse = await fetch(`/api/order-messages?number=${encodeURIComponent(targetNumber)}&phone=${encodeURIComponent(targetPhone)}`, { cache: "no-store" });
-        if (messagesResponse.ok) {
-          const messageData = await messagesResponse.json() as { messages?: OrderMessage[] };
-          if (Array.isArray(messageData.messages)) setMessages(messageData.messages);
-        }
+        if (!messagesResponse.ok) throw new Error(`Order messages could not be loaded (HTTP ${messagesResponse.status}).`);
+        const messageData = await messagesResponse.json() as { messages?: OrderMessage[] };
+        if (Array.isArray(messageData.messages)) setMessages(messageData.messages);
         setLookupError("");
       } catch (error) {
         if (!active) return;
@@ -271,8 +296,8 @@ export function OrderTracking() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ number: lookupTarget.number, phone: lookupTarget.phone, sender: "customer", body }),
       });
-      if (!response.ok) throw new Error("Message could not be sent.");
-      const data = await response.json() as { message?: OrderMessage };
+      const data = await response.json() as { message?: OrderMessage; warnings?: string[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Message could not be sent.");
       if (data.message) {
         setMessages((current) => [...current, data.message as OrderMessage]);
         playAlertChime("pop");
@@ -282,6 +307,7 @@ export function OrderTracking() {
           message: body,
         });
       }
+      if (data.warnings?.length) setLookupError(data.warnings.join(" "));
       setChatText("");
     } catch (error) {
       setLookupError(error instanceof Error ? error.message : "Message could not be sent.");
@@ -461,7 +487,8 @@ export function OrderTracking() {
                 <button type="submit" disabled={savingCustomerNote} style={{ justifySelf: "start", padding: "8px 12px", border: 0, borderRadius: 8, background: "#176b47", color: "white", fontWeight: 700 }}>{savingCustomerNote ? "Saving…" : "Save note"}</button>
               </form>
 
-              {canCancel && <div className="tracking-cancel-area"><motion.button type="button" whileTap={{ scale: 0.98 }} onClick={() => setShowCancelConfirm(true)}>Cancel Order</motion.button></div>}
+              {canCancel && <div className="tracking-cancel-area"><motion.span key={cancelSecondsLeft} initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.12 }}>Cancel available for {Math.floor((cancelSecondsLeft ?? 0) / 60).toString().padStart(2, "0")}:{((cancelSecondsLeft ?? 0) % 60).toString().padStart(2, "0")}</motion.span><motion.button type="button" whileTap={{ scale: 0.98 }} onClick={() => setShowCancelConfirm(true)}>Cancel Order</motion.button></div>}
+              {canCancelByStatus && cancelSecondsLeft === 0 && <p className="tracking-cancel-locked">The 5-minute cancellation window has expired. Contact the kitchen if you need help.</p>}
               {liveOrder.status === "preparing" || liveOrder.status === "ready" || liveOrder.status === "delivering" || liveOrder.status === "arriving" || liveOrder.status === "completed" ? <p className="tracking-cancel-locked">Cancellation is locked because preparation or delivery has started.</p> : null}
               <AnimatePresence>
                 {showCancelConfirm && canCancel && <motion.div className="tracking-cancel-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setShowCancelConfirm(false); }}>
@@ -501,6 +528,9 @@ export function OrderTracking() {
               <motion.div
                 key={stg.title}
                 whileHover={{ y: -3 }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.045 }}
                 style={{
                   padding: "14px",
                   borderRadius: "16px",

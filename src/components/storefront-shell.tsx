@@ -20,25 +20,50 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   const [accessDeniedToast, setAccessDeniedToast] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [mounted, setMounted] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<"auto" | "web" | "app">("auto");
+  const [desktopStandalone, setDesktopStandalone] = useState(false);
 
   useEffect(() => {
-    const mountedFrame = window.requestAnimationFrame(() => setMounted(true));
-
-    if (typeof window === "undefined") return;
-
-    // Detect mobile viewport or PWA standalone mode
+    const viewport = window.matchMedia("(max-width: 1023px)");
+    const standalone = window.matchMedia("(display-mode: standalone)");
     const checkViewport = () => {
-      const isNarrow = window.innerWidth <= 768;
-      const standalone =
-        window.matchMedia("(display-mode: standalone)").matches ||
-        (window.navigator as unknown as { standalone?: boolean }).standalone === true ||
-        document.documentElement.getAttribute("data-pwa-standalone") === "true";
-
-      setIsMobile(isNarrow || standalone || isMobileRoute);
+      setIsMobile(viewport.matches || isMobileRoute);
+      setDesktopStandalone(
+        !viewport.matches && (standalone.matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true),
+      );
     };
-
+    const checkStandalone = () => setDesktopStandalone(
+      !viewport.matches && (standalone.matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true),
+    );
+    const restorePreferences = () => {
+      try {
+        const saved = localStorage.getItem("hmf_view_mode");
+        setViewMode(saved === "app" || saved === "web" || saved === "auto" ? saved : "auto");
+      } catch (error) {
+        console.warn("Could not restore the saved view preference.", error);
+      }
+      checkViewport();
+      checkStandalone();
+      setMounted(true);
+    };
+    const modeHandler = (event: Event) => {
+      const selected = (event as CustomEvent<"auto" | "web" | "app">).detail;
+      if (selected === "app" || selected === "web" || selected === "auto") {
+        setViewMode(selected);
+        try {
+          window.localStorage.setItem("hmf_view_mode", selected);
+        } catch (error) {
+          console.warn("Could not save the selected view preference.", error);
+        }
+      }
+    };
     checkViewport();
+    checkStandalone();
+    const restoreTimer = window.setTimeout(restorePreferences, 0);
+    viewport.addEventListener("change", checkViewport);
+    standalone.addEventListener("change", checkStandalone);
     window.addEventListener("resize", checkViewport);
+    window.addEventListener("hmf_view_mode_changed", modeHandler);
 
     // Check for access denied toast param
     const params = new URLSearchParams(window.location.search);
@@ -54,9 +79,12 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     }
 
     return () => {
-      window.cancelAnimationFrame(mountedFrame);
+      window.clearTimeout(restoreTimer);
       if (accessDeniedFrame) window.cancelAnimationFrame(accessDeniedFrame);
+      viewport.removeEventListener("change", checkViewport);
+      standalone.removeEventListener("change", checkStandalone);
       window.removeEventListener("resize", checkViewport);
+      window.removeEventListener("hmf_view_mode_changed", modeHandler);
     };
   }, [pathname, isMobileRoute]);
 
@@ -70,6 +98,10 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   if (isAdminRoute) {
     return <main className="admin-root-viewport">{children}</main>;
   }
+
+  const isDesktopApp = !isMobile && (viewMode === "app" || (viewMode === "auto" && desktopStandalone));
+  const isDesktopAppHome = isDesktopApp && pathname === "/";
+  const isMobileHome = isMobile && (pathname === "/" || isMobileRoute);
 
   return (
     <>
@@ -148,21 +180,26 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
         )}
       </AnimatePresence>
 
-      {/* Render Native Mobile App Shell on Mobile Viewports / PWA Standalone Mode */}
+      {/* Render a fluid app shell on phone and tablet viewports. */}
       {mounted && (isMobile || isMobileRoute) ? (
-        <MobileAppShell>
+        <MobileAppShell hideHeader={isMobileHome}>
           {children}
           <MobileCartDrawer />
           <FloatingAssistants />
         </MobileAppShell>
       ) : (
         <>
-          <SiteHeader />
-          <main>{children}</main>
-          <SiteFooter />
+          {!isDesktopAppHome && <SiteHeader />}
+          <main
+            className={isDesktopAppHome ? "desktop-app-shell" : undefined}
+            role={isDesktopAppHome ? "none" : undefined}
+          >
+            {children}
+          </main>
+          {!isDesktopAppHome && <SiteFooter />}
           <MobileCartDrawer />
           <FloatingAssistants />
-          <NewVisitorAuthPrompt />
+          {!isDesktopAppHome && <NewVisitorAuthPrompt />}
         </>
       )}
     </>

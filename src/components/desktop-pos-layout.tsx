@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Dish } from "@/lib/data";
 import { useLiveDishes } from "@/hooks/use-live-dishes";
@@ -16,61 +15,91 @@ import {
   RAAST_REF_NUMBER,
 } from "@/lib/emvco-qr";
 import { QRCodeSVG } from "qrcode.react";
+import { getFavoriteDishIds, FAVORITES_CHANGE_EVENT } from "@/lib/favorites";
+import { useKitchenAvailability } from "@/hooks/use-kitchen-availability";
 
 const POS_CATEGORIES = [
-  { id: "All", name: "All Items", icon: "🥘" },
+  { id: "All", name: "All", icon: "🥘" },
   { id: "Breakfast", name: "Breakfast", icon: "🍳" },
   { id: "Lunch", name: "Lunch", icon: "🍱" },
   { id: "Dinner", name: "Dinner", icon: "🍛" },
+  { id: "Rice & Biryani", name: "Rice & Biryani", icon: "🍚" },
+  { id: "Home Specials", name: "Home Specials", icon: "🏠" },
   { id: "Daily Deals", name: "Daily Deals", icon: "🏷️" },
   { id: "Fast Food", name: "Fast Food", icon: "🍔" },
-  { id: "Traditional", name: "Traditional", icon: "🍲" },
-  { id: "Desserts & Drinks", name: "Desserts", icon: "🥤" },
+  { id: "Favorites", name: "Favorites", icon: "❤️" },
 ];
 
 export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) {
-  const pathname = usePathname();
   const liveCatalog = useLiveDishes(initialDishes);
+  const kitchen = useKitchenAvailability();
   const { items, addItem, updateQuantity, removeItem, clearCart } = useCart();
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterPrice, setFilterPrice] = useState<"all" | "under_300" | "300_600" | "600_plus">("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [serviceMode, setServiceMode] = useState<"delivery" | "takeout" | "dinein">("delivery");
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [addedDishId, setAddedDishId] = useState<number | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
+  const [selectedArea, setSelectedArea] = useState("Model Town, Bahawalpur");
 
   useEffect(() => {
-    const initialRead = window.requestAnimationFrame(() => setCustomer(readCustomerProfile()));
+    const initialRead = window.requestAnimationFrame(() => {
+      setCustomer(readCustomerProfile());
+      setFavoriteIds(getFavoriteDishIds());
+    });
+    const onFavoriteChange = () => setFavoriteIds(getFavoriteDishIds());
     const onAuth = (e: Event) => {
       const ce = e as CustomEvent<CustomerProfile | null>;
       setCustomer(ce.detail || null);
     };
     window.addEventListener(CUSTOMER_AUTH_EVENT, onAuth);
+    window.addEventListener(FAVORITES_CHANGE_EVENT, onFavoriteChange);
     return () => {
       window.cancelAnimationFrame(initialRead);
       window.removeEventListener(CUSTOMER_AUTH_EVENT, onAuth);
+      window.removeEventListener(FAVORITES_CHANGE_EVENT, onFavoriteChange);
     };
   }, []);
 
+  useEffect(() => {
+    if (!filterOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFilterOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [filterOpen]);
+
   const filteredDishes = useMemo(() => {
     return liveCatalog.dishes.filter((dish) => {
+      const categories = [dish.category, ...(dish.categories || [])].map((category) => category.trim().toLowerCase());
+      const normalizedCategory = selectedCategory.trim().toLowerCase();
       const matchesCategory =
-        selectedCategory === "All" ||
-        dish.category.toLowerCase() === selectedCategory.toLowerCase() ||
-        (selectedCategory === "Daily Deals" &&
-          (dish.category.toLowerCase().includes("deal") ||
-            (dish.dietaryTags && dish.dietaryTags.some((t) => t.toLowerCase().includes("deal")))));
+        normalizedCategory === "all" ||
+        (normalizedCategory === "favorites" && favoriteIds.includes(dish.id)) ||
+        categories.includes(normalizedCategory) ||
+        (normalizedCategory === "daily deals" &&
+          (categories.some((category) => category.includes("deal")) ||
+            (dish.dietaryTags && dish.dietaryTags.some((tag) => tag.toLowerCase().includes("deal")))));
 
       const query = searchQuery.trim().toLowerCase();
       const matchesSearch =
         !query ||
         dish.name.toLowerCase().includes(query) ||
         dish.description.toLowerCase().includes(query) ||
-        dish.category.toLowerCase().includes(query);
+        categories.some((category) => category.includes(query));
+      const price = dish.portions?.[0]?.price || 0;
+      const matchesPrice = filterPrice === "all" ||
+        (filterPrice === "under_300" && price < 300) ||
+        (filterPrice === "300_600" && price >= 300 && price <= 600) ||
+        (filterPrice === "600_plus" && price > 600);
 
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesSearch && matchesPrice;
     });
-  }, [liveCatalog.dishes, selectedCategory, searchQuery]);
+  }, [liveCatalog.dishes, selectedCategory, searchQuery, filterPrice, favoriteIds]);
 
   // Financial Calculations
   const subtotal = useMemo(
@@ -108,12 +137,13 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
   };
 
   const navLinks = [
-    { label: "Menu Catalog", href: "/menu", icon: "🍽️", active: true },
-    { label: "Daily Deals", href: "/daily-deals", icon: "🏷️", active: pathname === "/daily-deals" },
-    { label: "Track Orders", href: "/track-order", icon: "🧾", active: pathname === "/track-order" },
-    { label: "Customer Base", href: "/admin/customers", icon: "👥", active: pathname === "/admin/customers" },
-    { label: "Admin Portal", href: "/admin", icon: "🛡️", active: pathname === "/admin" },
-    { label: "My Profile", href: "/profile", icon: "👤", active: pathname === "/profile" },
+    { label: "Home / Discover", icon: "⌂", active: selectedCategory === "All", category: "All" },
+    { label: "Menu", icon: "🍽️", active: selectedCategory === "All", category: "All" },
+    { label: "Daily Deals", icon: "🏷️", active: selectedCategory === "Daily Deals", category: "Daily Deals" },
+    { label: "Track Order", href: "/track-order", icon: "🧾", active: false },
+    { label: "Meal Plans", href: "/subscriptions", icon: "🥗", active: false },
+    { label: "Favorites", icon: "❤️", active: selectedCategory === "Favorites", category: "Favorites" },
+    { label: "Profile", href: "/profile", icon: "👤", active: false },
   ];
 
   return (
@@ -121,7 +151,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
       className="desktop-pos-container"
       style={{
         display: "flex",
-        minHeight: "calc(100vh - 88px)",
+        minHeight: "100vh",
         background: "#f8fafc",
         fontFamily: "'Plus Jakarta Sans', sans-serif",
       }}
@@ -198,7 +228,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                   letterSpacing: "0.5px",
                 }}
               >
-                POS & REGISTER
+                DESKTOP APP
               </div>
             </div>
           </Link>
@@ -206,10 +236,15 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
           {/* Navigation Items */}
           <nav style={{ marginTop: "20px", display: "flex", flexDirection: "column", gap: "6px" }}>
             {navLinks.map((item) => (
-              <Link
+              item.category ? (
+              <motion.button
                 key={item.label}
-                href={item.href}
+                type="button"
+                onClick={() => setSelectedCategory(item.category!)}
+                whileTap={{ scale: 0.98 }}
                 style={{
+                  position: "relative",
+                  border: 0,
                   display: "flex",
                   alignItems: "center",
                   gap: "12px",
@@ -226,11 +261,39 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                     ? "0 4px 14px rgba(5, 150, 105, 0.28)"
                     : "none",
                   transition: "all 0.15s ease",
+                  textAlign: "left",
+                  cursor: "pointer",
                 }}
               >
-                <span style={{ fontSize: "16px" }}>{item.icon}</span>
-                <span>{item.label}</span>
+                {item.active && <motion.span layoutId="desktop-sidebar-active" className="desktop-sidebar-active" />}
+                <span style={{ position: "relative", zIndex: 1, fontSize: "16px" }}>{item.icon}</span>
+                <span style={{ position: "relative", zIndex: 1 }}>{item.label}</span>
+              </motion.button>
+              ) : (
+              <Link
+                key={item.label}
+                href={item.href || "/"}
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "10px 14px",
+                  borderRadius: "12px",
+                  textDecoration: "none",
+                  fontSize: "13px",
+                  fontWeight: item.active ? 800 : 600,
+                  background: item.active ? "linear-gradient(135deg, #059669 0%, #047857 100%)" : "transparent",
+                  color: item.active ? "#ffffff" : "#475569",
+                  boxShadow: item.active ? "0 4px 14px rgba(5, 150, 105, 0.28)" : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {item.active && <motion.span layoutId="desktop-sidebar-active" className="desktop-sidebar-active" />}
+                <span style={{ position: "relative", zIndex: 1, fontSize: "16px" }}>{item.icon}</span>
+                <span style={{ position: "relative", zIndex: 1 }}>{item.label}</span>
               </Link>
+              )
             ))}
           </nav>
         </div>
@@ -257,8 +320,8 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                 width: "8px",
                 height: "8px",
                 borderRadius: "50%",
-                background: "#10b981",
-                boxShadow: "0 0 8px #10b981",
+                background: kitchen?.available ? "#10b981" : "#f59e0b",
+                boxShadow: kitchen?.available ? "0 0 8px #10b981" : "0 0 8px #f59e0b",
               }}
             />
             <span
@@ -268,7 +331,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                 color: "#166534",
               }}
             >
-              Kitchen Online
+              {kitchen === null ? "Checking kitchen" : kitchen.available ? "Kitchen Open" : "Kitchen Closed"}
             </span>
           </div>
           <p
@@ -279,47 +342,31 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
               lineHeight: 1.4,
             }}
           >
-            Bahawalpur express delivery. Real-time dynamic DB sync active.
+            {kitchen?.reason || "Fresh home cooking and local delivery."}
           </p>
+          <label className="desktop-delivery-area">
+            Delivery area
+            <select value={selectedArea} onChange={(event) => setSelectedArea(event.target.value)}>
+              <option>Model Town, Bahawalpur</option>
+              <option>Satellite Town, Bahawalpur</option>
+              <option>Cantt Area, Bahawalpur</option>
+              <option>City Center, Bahawalpur</option>
+            </select>
+          </label>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: "web" }));
-          }}
-          style={{
-            marginTop: "12px",
-            width: "100%",
-            padding: "9px 12px",
-            borderRadius: "10px",
-            border: "1px solid #cbd5e1",
-            background: "#ffffff",
-            color: "#334155",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "6px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-          }}
-        >
-          <span>🌐</span>
-          <span>Switch to Web Storefront</span>
-        </button>
       </aside>
 
       {/* ======================================================== */}
       {/* COLUMN 2: CENTER WORKSPACE (CATALOG & DISHES)             */}
       {/* ======================================================== */}
       <main
+        className="desktop-app-workspace"
         style={{
           flex: 1,
           padding: "24px 28px",
           overflowY: "auto",
-          maxHeight: "calc(100vh - 88px)",
+          maxHeight: "100vh",
         }}
       >
         {/* Top Control Bar */}
@@ -330,6 +377,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
             justifyContent: "space-between",
             gap: "20px",
             marginBottom: "20px",
+            flexWrap: "wrap",
           }}
         >
           {/* Search Bar */}
@@ -399,10 +447,87 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
             />
             <span>{liveCatalog.connected ? "Real-time DB Sync" : "Cached Menu"}</span>
           </div>
+          <div className="desktop-app-top-actions">
+            <motion.button type="button" whileTap={{ scale: 0.97 }} aria-expanded={filterOpen} onClick={() => setFilterOpen(true)}>
+              ⚙ Filters
+            </motion.button>
+            <motion.button type="button" whileTap={{ scale: 0.97 }} onClick={() => setSelectedCategory("Favorites")}>
+              ♥ Favorites <span className="desktop-app-badge">{favoriteIds.length}</span>
+            </motion.button>
+            <motion.button type="button" whileTap={{ scale: 0.97 }} onClick={() => document.getElementById("app-cart")?.scrollIntoView({ behavior: "smooth" })}>
+              🛍 Cart <motion.span key={items.reduce((sum, item) => sum + item.quantity, 0)} className="desktop-app-badge" initial={{ scale: 0.75 }} animate={{ scale: [1.15, 1] }} transition={{ duration: 0.22 }}>{items.reduce((sum, item) => sum + item.quantity, 0)}</motion.span>
+            </motion.button>
+            <Link href="/profile" className="desktop-app-profile-chip">
+              {customer?.name || customer?.email?.split("@")[0] || "Profile"} <span>›</span>
+            </Link>
+            <motion.button
+              type="button"
+              className="desktop-app-website-toggle"
+              aria-label="Switch to Website View"
+              whileTap={{ scale: 0.97 }}
+              onClick={() => window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: "web" }))}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
+              </svg>
+              Website View
+            </motion.button>
+          </div>
         </div>
+
+        <AnimatePresence>
+          {filterOpen && (
+            <motion.div
+              className="desktop-filter-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onMouseDown={(event) => { if (event.target === event.currentTarget) setFilterOpen(false); }}
+            >
+              <motion.aside
+                className="desktop-filter-drawer"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Filter menu"
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", stiffness: 320, damping: 32 }}
+              >
+                <div className="desktop-filter-heading">
+                  <div><span>REFINE YOUR MENU</span><h2>Filters</h2></div>
+                  <button type="button" onClick={() => setFilterOpen(false)} aria-label="Close filters">×</button>
+                </div>
+                <strong>Price range</strong>
+                {[
+                  ["all", "Any price"],
+                  ["under_300", "Under PKR 300"],
+                  ["300_600", "PKR 300–600"],
+                  ["600_plus", "PKR 600+"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={filterPrice === value ? "selected" : ""}
+                    onClick={() => setFilterPrice(value as typeof filterPrice)}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <div className="desktop-filter-actions">
+                  <button type="button" onClick={() => { setFilterPrice("all"); setSelectedCategory("All"); setSearchQuery(""); }}>Reset</button>
+                  <button type="button" onClick={() => setFilterOpen(false)}>Show {filteredDishes.length} dishes</button>
+                </div>
+              </motion.aside>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Category Horizontal Filter Pills */}
         <div
+          id="app-categories"
+          className="desktop-app-categories"
           style={{
             display: "flex",
             gap: "10px",
@@ -415,20 +540,21 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
           {POS_CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat.name;
             return (
-              <button
+              <motion.button
                 key={cat.id}
                 type="button"
                 onClick={() => setSelectedCategory(cat.name)}
+                whileTap={{ scale: 0.97 }}
+                aria-pressed={isSelected}
                 style={{
+                  position: "relative",
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
                   padding: "9px 16px",
                   borderRadius: "12px",
-                  border: isSelected ? "none" : "1px solid #cbd5e1",
-                  background: isSelected
-                    ? "linear-gradient(135deg, #059669 0%, #047857 100%)"
-                    : "#ffffff",
+                  border: isSelected ? "1px solid transparent" : "1px solid #cbd5e1",
+                  background: "transparent",
                   color: isSelected ? "#ffffff" : "#334155",
                   fontSize: "13px",
                   fontWeight: isSelected ? 800 : 600,
@@ -441,15 +567,33 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                   flexShrink: 0,
                 }}
               >
-                <span>{cat.icon}</span>
-                <span>{cat.name}</span>
-              </button>
+                {isSelected && <motion.span layoutId="desktop-category-active" className="desktop-category-active" />}
+                <span style={{ position: "relative", zIndex: 1 }}>{cat.icon}</span>
+                <span style={{ position: "relative", zIndex: 1 }}>{cat.name}</span>
+              </motion.button>
             );
           })}
         </div>
 
+        <motion.div
+          className="desktop-app-promo"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <span>HOUSE FAVORITES</span>
+          <strong>Special Dinner &amp; Lunch Deals</strong>
+          <p>Freshly prepared, delivered across Bahawalpur.</p>
+          <motion.button type="button" whileTap={{ scale: 0.97 }} onClick={() => setSelectedCategory("Daily Deals")}>View Deals <span>→</span></motion.button>
+        </motion.div>
+        <div className="desktop-app-tracker-bar">
+          <span><strong>Order in progress?</strong> Follow kitchen updates and delivery status.</span>
+          <Link href="/track-order">Track an order <span aria-hidden="true">→</span></Link>
+        </div>
+
         {/* Section Header */}
         <div
+          className="desktop-app-dish-heading"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -477,20 +621,35 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
 
         {/* 3-to-4 Columns Dish Cards Grid */}
         <div
+          className="desktop-app-dish-grid"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
             gap: "18px",
           }}
         >
-          {filteredDishes.map((dish) => {
+          {liveCatalog.loading && liveCatalog.dishes.length === 0 ? (
+            Array.from({ length: 8 }, (_, index) => <div key={`desktop-dish-skeleton-${index}`} className="desktop-dish-skeleton" aria-hidden="true" />)
+          ) : filteredDishes.length === 0 ? (
+            <div className="desktop-app-empty-state">
+              <strong>No dishes found</strong>
+              <span>Try another search or reset your filters.</span>
+              <button type="button" onClick={() => { setSelectedCategory("All"); setSearchQuery(""); setFilterPrice("all"); }}>Reset Filters</button>
+            </div>
+          ) : filteredDishes.map((dish, index) => {
             const portion = dish.portions?.[0] || { name: "Standard", price: 0 };
             const available = dish.available !== false;
             const isJustAdded = addedDishId === dish.id;
 
             return (
-              <div
+              <motion.div
                 key={dish.id}
+                layout
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: available ? 1 : 0.6, y: 0 }}
+                whileHover={{ y: -4 }}
+                transition={{ duration: 0.25, delay: Math.min(index * 0.025, 0.3) }}
+                className="desktop-app-dish-card"
                 style={{
                   background: "#ffffff",
                   borderRadius: "16px",
@@ -500,7 +659,6 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                   flexDirection: "column",
                   boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
                   transition: "transform 0.15s ease, box-shadow 0.15s ease",
-                  opacity: available ? 1 : 0.6,
                 }}
               >
                 {/* Dish Photo */}
@@ -640,10 +798,11 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                       </span>
                     </div>
 
-                    <button
+                    <motion.button
                       type="button"
                       disabled={!available}
                       onClick={() => handleQuickAdd(dish)}
+                      whileTap={{ scale: 0.97 }}
                       style={{
                         background: isJustAdded
                           ? "#10b981"
@@ -664,10 +823,10 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                       }}
                     >
                       {isJustAdded ? "✓ Added" : "+ ADD"}
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -677,6 +836,8 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
       {/* COLUMN 3: RIGHT SIDEBAR (ORDER DETAILS / POS REGISTER)    */}
       {/* ======================================================== */}
       <aside
+        id="app-cart"
+        className="desktop-app-cart"
         style={{
           width: "360px",
           background: "#ffffff",

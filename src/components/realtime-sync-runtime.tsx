@@ -6,7 +6,7 @@ import { REALTIME_EVENT_DOM, type RealtimeEventPayload } from "@/lib/realtime-bu
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
-const tables = ["menu_items", "daily_deals", "categories", "orders", "store_settings_public", "profiles", "order_messages", "admin_notification_events"];
+const tables = ["menu_items", "daily_deals", "categories", "orders", "meal_subscriptions", "reservations", "store_settings_public", "profiles", "order_messages", "admin_notification_events"];
 
 export function RealtimeSyncRuntime() {
   useEffect(() => {

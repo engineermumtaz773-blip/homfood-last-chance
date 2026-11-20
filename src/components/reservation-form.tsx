@@ -37,10 +37,10 @@ export function ReservationForm() {
           notes: form.get("notes"),
         }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await response.json() as { error?: string; reservation?: { id?: string; slot_time?: string } };
       if (!response.ok) throw new Error(data.error || "Could not submit the reservation.");
       formElement.reset();
-      setMessage(t("reservationSuccess"));
+      setMessage(`${t("reservationSuccess")}${data.reservation?.id ? ` Reference: ${data.reservation.id}.` : ""}`);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not submit the reservation.");
     } finally {

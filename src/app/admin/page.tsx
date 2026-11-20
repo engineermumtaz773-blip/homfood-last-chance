@@ -221,6 +221,7 @@ export default function AdminPage() {
           <Link href="/admin/menu"><span>♨</span><strong>Manage Menu</strong><small>Update dishes & prices</small></Link>
           <Link href="/admin/deals"><span>✦</span><strong>Daily Deals</strong><small>Update dynamic deals in DB</small></Link>
           <Link href="/admin/orders"><span>▤</span><strong>View Orders</strong><small>Live orders & dispatch</small></Link>
+          <Link href="/admin/requests"><span>◷</span><strong>Customer Requests</strong><small>Meal plans & reservations</small></Link>
           <Link href="/admin/settings"><span>⚙</span><strong>Store Settings</strong><small>Delivery, Raast & hours</small></Link>
         </div>
       </section>

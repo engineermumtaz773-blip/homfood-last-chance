@@ -18,8 +18,12 @@ function CallbackStatus() {
   useEffect(() => {
     let cancelled = false;
     async function completeSignIn() {
-      const providerError = params.get("error_description") || params.get("error");
-      if (providerError) throw new Error("Sign-in was cancelled or could not be completed.");
+      const providerError = params.get("error");
+      const providerDescription = params.get("error_description");
+      if (providerError || providerDescription) {
+        const detail = (providerDescription || providerError || "Sign-in was cancelled").slice(0, 240);
+        throw new Error(`Google sign-in did not complete: ${detail}`);
+      }
       const code = params.get("code");
       if (!code) throw new Error("The sign-in link is incomplete. Please try again.");
       const supabase = getSupabaseAuthClient();

@@ -8,7 +8,6 @@ export type OrderSubmission = {
   address: string;
   notes: string;
   payment: string;
-  promo_code: string;
   items: Array<{ id: number; portion: string; quantity: number; note?: string; name?: string; price?: number }>;
   subtotal?: number;
   discount?: number;
@@ -43,6 +42,7 @@ export type LiveOrderStatus = {
   adminNotes?: string;
   adminMediaUrl?: string;
   cancellationReason?: string;
+  persistenceWarnings?: string[];
 };
 
 const statusMap: Record<DbOrderStatus | "new" | "ready" | "delivering" | "arriving" | "completed", LiveOrderStatus["status"]> = {
@@ -122,9 +122,12 @@ export async function createLiveOrder(order: OrderSubmission): Promise<LiveOrder
     const data = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(data?.error || `Order could not be saved (${res.status}).`);
   }
-  const data = await res.json() as { ok?: boolean; order?: DbOrder };
+  const data = await res.json() as { ok?: boolean; order?: DbOrder; warnings?: string[] };
   if (!data.ok || !data.order) throw new Error("The database did not return the saved order.");
-  return mapLiveOrder(data.order);
+  return {
+    ...mapLiveOrder(data.order),
+    ...(Array.isArray(data.warnings) && data.warnings.length ? { persistenceWarnings: data.warnings } : {}),
+  };
 }
 
 export async function getLiveOrderStatus(number: string, phone: string): Promise<LiveOrderStatus> {

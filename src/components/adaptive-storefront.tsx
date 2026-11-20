@@ -1,90 +1,125 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { StorefrontHome } from "@/components/storefront-home";
 import { NativeMobileHome } from "@/components/native-mobile-home";
 import { DesktopPosLayout } from "@/components/desktop-pos-layout";
 import type { Dish } from "@/lib/data";
 
 export const VIEW_MODE_CHANGE_EVENT = "hmf_view_mode_changed";
+type ViewMode = "auto" | "web" | "app";
 
 export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
+  const [mode, setMode] = useState<ViewMode>("web");
+  const [isMobile, setIsMobile] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [modeOverride, setModeOverride] = useState<"auto" | "web" | "app">("auto");
-  const [mounted, setMounted] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const mountedFrame = window.requestAnimationFrame(() => setMounted(true));
-    let savedModeFrame = 0;
-
-    const media = window.matchMedia("(display-mode: standalone)");
-    const checkStandalone = () => {
-      const standalone =
-        media.matches ||
-        (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-      setIsStandalone(standalone);
-      if (standalone) {
-        document.documentElement.setAttribute("data-pwa-standalone", "true");
+    const viewport = window.matchMedia("(max-width: 1023px)");
+    const standalone = window.matchMedia("(display-mode: standalone)");
+    const updateViewport = () => setIsMobile(viewport.matches);
+    const updateStandalone = () => setIsStandalone(
+      standalone.matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true,
+    );
+    const restoreMode = () => {
+      try {
+        const saved = localStorage.getItem("hmf_view_mode");
+        setMode(saved === "app" || saved === "web" || saved === "auto" ? saved : "auto");
+      } catch (error) {
+        console.warn("Could not restore the saved view preference.", error);
+        setMode("auto");
+      }
+      updateViewport();
+      updateStandalone();
+      setReady(true);
+    };
+    const restoreTimer = window.setTimeout(restoreMode, 0);
+    const onModeChange = (event: Event) => {
+      const selected = (event as CustomEvent<ViewMode>).detail;
+      if (selected !== "app" && selected !== "web" && selected !== "auto") return;
+      setMode(selected);
+      try {
+        localStorage.setItem("hmf_view_mode", selected);
+      } catch (error) {
+        console.warn("Could not save the view preference.", error);
       }
     };
-
-    checkStandalone();
-    media.addEventListener("change", checkStandalone);
-
-    const saved = localStorage.getItem("hmf_view_mode") as "auto" | "web" | "app" | null;
-    if (saved) {
-      savedModeFrame = window.requestAnimationFrame(() => {
-        setModeOverride(saved);
-        if (saved === "app") {
-          document.documentElement.setAttribute("data-pwa-standalone", "true");
-        } else if (saved === "web") {
-          document.documentElement.removeAttribute("data-pwa-standalone");
-        }
-      });
-    }
-
-    const handler = (e: Event) => {
-      const ce = e as CustomEvent<"auto" | "web" | "app">;
-      if (ce.detail) {
-        setModeOverride(ce.detail);
-        localStorage.setItem("hmf_view_mode", ce.detail);
-        if (ce.detail === "app") {
-          document.documentElement.setAttribute("data-pwa-standalone", "true");
-        } else if (ce.detail === "web") {
-          document.documentElement.removeAttribute("data-pwa-standalone");
-        }
-      }
-    };
-
-    window.addEventListener(VIEW_MODE_CHANGE_EVENT, handler);
+    viewport.addEventListener("change", updateViewport);
+    standalone.addEventListener("change", updateStandalone);
+    window.addEventListener(VIEW_MODE_CHANGE_EVENT, onModeChange);
     return () => {
-      window.cancelAnimationFrame(mountedFrame);
-      if (savedModeFrame) window.cancelAnimationFrame(savedModeFrame);
-      media.removeEventListener("change", checkStandalone);
-      window.removeEventListener(VIEW_MODE_CHANGE_EVENT, handler);
+      window.clearTimeout(restoreTimer);
+      viewport.removeEventListener("change", updateViewport);
+      standalone.removeEventListener("change", updateStandalone);
+      window.removeEventListener(VIEW_MODE_CHANGE_EVENT, onModeChange);
     };
   }, []);
 
-  // When installed as PWA or user explicitly selected "app" view mode:
-  const isPwaAppActive = modeOverride === "app" || (modeOverride === "auto" && isStandalone);
+  const appMode = mode === "app" || (mode === "auto" && isStandalone);
+  const renderMobileApp = isMobile || (appMode && isMobile);
+  const renderDesktopApp = !isMobile && appMode;
+  const transition = { duration: 0.28, ease: [0.22, 1, 0.36, 1] as const };
 
-  if (mounted && isPwaAppActive) {
-    return (
-      <div className="adaptive-pwa-wrapper">
-        <div className="adaptive-mobile-container">
-          <NativeMobileHome dishes={dishes} />
-        </div>
-        <div className="adaptive-desktop-container">
-          <DesktopPosLayout dishes={dishes} />
-        </div>
-      </div>
-    );
-  }
-
-  // Web Browser default: High-end, responsive web application with standard header, hero, multi-column layouts & footer
   return (
-    <div className="adaptive-web-wrapper">
-      <StorefrontHome dishes={dishes} />
-    </div>
+    <MotionConfig reducedMotion="user">
+      <AnimatePresence mode="sync" initial={false}>
+        {!ready ? (
+          <motion.div
+            key="storefront-loading"
+            className="adaptive-storefront-loading"
+            aria-label="Loading storefront"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={transition}
+          >
+            <div className="adaptive-loading-content" aria-hidden="true">
+              <span className="adaptive-loading-title" />
+              <div className="adaptive-loading-categories">
+                {Array.from({ length: 5 }, (_, index) => <span key={index} />)}
+              </div>
+              <div className="adaptive-loading-grid">
+                {Array.from({ length: 4 }, (_, index) => <span key={index} />)}
+              </div>
+            </div>
+          </motion.div>
+        ) : renderMobileApp ? (
+          <motion.div
+            key="mobile-app"
+            className="adaptive-mobile-app"
+            initial={{ opacity: 0, y: 10, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.99 }}
+            transition={transition}
+          >
+            <NativeMobileHome dishes={dishes} />
+          </motion.div>
+        ) : renderDesktopApp ? (
+          <motion.div
+            key="desktop-app"
+            className="adaptive-desktop-app"
+            initial={{ opacity: 0, y: 10, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.99 }}
+            transition={transition}
+          >
+            <DesktopPosLayout dishes={dishes} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="website"
+            className="adaptive-web-wrapper"
+            initial={{ opacity: 0, y: 10, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.99 }}
+            transition={transition}
+          >
+            <StorefrontHome dishes={dishes} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </MotionConfig>
   );
 }

@@ -4,6 +4,39 @@ import { isSupabaseSchemaMismatch } from "@/lib/supabase-schema";
 
 type SupabaseRow = Record<string, unknown>;
 
+const menuItemRequiredColumns = [
+  "id",
+  "name",
+  "description",
+  "category",
+  "categories",
+  "image",
+  "image_url",
+  "portions",
+  "available",
+  "featured",
+  "sold_out",
+  "daily_stock_limit",
+  "remaining_stock",
+  "calories",
+  "protein_g",
+  "carbs_g",
+  "fat_g",
+  "allergens",
+  "addons_json",
+  "updated_at",
+  "deleted_at",
+] as const;
+
+const menuItemSelectColumns = [
+  ...menuItemRequiredColumns,
+  "serving_size",
+  "dietary_tags",
+  "rating",
+  "rating_count",
+  "translations",
+].join(",");
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
@@ -229,8 +262,11 @@ async function request(path: string, init?: RequestInit): Promise<SupabaseRow[] 
     const table = path.split("?")[0];
     if (isSupabaseSchemaMismatch(error)) {
       console.error("[SUPABASE_SCHEMA_MISMATCH]", { table, method, error: getSupabaseErrorPayload(error) });
-      if (method === "GET" && table === "customers") return [];
-      throw new Error(`Supabase schema is incomplete for ${table}. Apply the required database migrations and retry.`);
+      const diagnostic = getSupabaseErrorPayload(error);
+      const detail = [diagnostic.message, diagnostic.details, diagnostic.hint]
+        .filter((part): part is string => Boolean(part))
+        .join(" ");
+      throw new Error(`Supabase schema is incomplete for ${table}. ${detail} Apply the required database migrations and retry.`);
     }
     console.error("[SUPABASE_REQUEST_FAILED]", { table, method, error: getSupabaseErrorPayload(error) });
     throw error;
@@ -316,7 +352,7 @@ export async function cancelSupabaseOrder(number: string, phone: string, reason:
     }),
   });
   const row = rowsOf(result, "Order cancellation")[0];
-  if (!row || (row.result !== "cancelled" && row.result !== "locked" && row.result !== "not_found")) {
+  if (!row || !["cancelled", "expired", "locked", "not_found"].includes(String(row.result))) {
     throw new Error("Order cancellation returned an unexpected Supabase response.");
   }
   const orderData = row.order_data;
@@ -324,7 +360,7 @@ export async function cancelSupabaseOrder(number: string, phone: string, reason:
     result: row.result,
     ...(orderData && typeof orderData === "object" ? { order: mapOrder(orderData as SupabaseRow) } : {}),
   } as {
-    result: "cancelled" | "locked" | "not_found";
+    result: "cancelled" | "expired" | "locked" | "not_found";
     order?: DbOrder;
   };
 }
@@ -412,9 +448,18 @@ function matchesDishCategory(dish: Dish, category: string) {
 }
 
 export async function getSupabaseDishes(category?: string) {
-  const rows = rowsOf(await request("menu_items?select=*&order=id.asc"), "Menu query");
-  const dishes = rows.map(mapDish);
-  if (!category?.trim()) return dishes;
+  const rows = rowsOf(await request(`menu_items?select=${menuItemSelectColumns}&deleted_at=is.null&order=id.asc`), "Menu query");
+  const invalidRows = rows.flatMap((row, index) => {
+    const missing = menuItemRequiredColumns.filter((column) => !(column in row));
+    return missing.length ? [`row ${index + 1}: ${missing.join(", ")}`] : [];
+  });
+  if (invalidRows.length) {
+    throw new Error(`Supabase menu_items response is missing required columns (${invalidRows.join("; ")}). Apply the required database migrations and retry.`);
+  }
+  const dishes = rows
+    .filter((row) => value(row, "deleted_at") == null)
+    .map(mapDish);
+  if (!category?.trim() || category.trim().toLocaleLowerCase() === "all") return dishes;
   return dishes.filter((dish) => matchesDishCategory(dish, category));
 }
 
@@ -586,7 +631,7 @@ export async function supabaseAuthUserExists(email: string): Promise<boolean> {
   }
 }
 
-export async function upsertSupabaseCustomer(customer: Partial<DbCustomer> & { email: string }) {
+export async function upsertSupabaseCustomer(customer: Partial<DbCustomer> & { email: string; authUserId?: string }) {
   // The setup schema has no database-side ID default. Reuse an existing ID
   // when the email already exists, otherwise provide one before the upsert.
   const existing = customer.id ? null : await getSupabaseCustomerByEmail(customer.email);
@@ -601,6 +646,7 @@ export async function upsertSupabaseCustomer(customer: Partial<DbCustomer> & { e
     addresses: customer.addresses || [],
     notes: customer.notes || "",
     last_login_at: new Date().toISOString(),
+    ...(customer.authUserId ? { auth_user_id: customer.authUserId } : {}),
   };
   const saved = firstRow(await request("customers?on_conflict=email", {
     method: "POST",
@@ -721,6 +767,18 @@ export async function getSupabaseCustomerSubscriptions(customerId: string) {
   return rowsOf(await request(`meal_subscriptions?customer_id=eq.${encodeURIComponent(customerId)}&select=*&order=created_at.desc`), "Customer subscriptions query");
 }
 
+export async function getSupabaseSubscriptions() {
+  return rowsOf(await request("meal_subscriptions?select=*&order=created_at.desc"), "Meal subscriptions query");
+}
+
+export async function updateSupabaseSubscription(id: string, status: "active" | "paused" | "cancelled" | "completed") {
+  const rows = rowsOf(await request(`meal_subscriptions?id=eq.${encodeURIComponent(id)}&select=*`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  }), "Meal subscription update");
+  return rows[0] || null;
+}
+
 export async function createSupabaseSubscription(input: {
   customerId: string;
   planType: "weekly" | "monthly";
@@ -765,6 +823,10 @@ export async function createSupabaseReservation(input: {
 
 export async function getSupabaseReservations() {
   return rowsOf(await request("reservations?select=*&order=slot_time.asc"), "Reservations query");
+}
+
+export async function getSupabaseCustomerReservations(customerId: string) {
+  return rowsOf(await request(`reservations?customer_id=eq.${encodeURIComponent(customerId)}&select=*&order=slot_time.asc`), "Customer reservations query");
 }
 
 export async function updateSupabaseReservation(id: string, status: "confirmed" | "cancelled" | "completed") {
@@ -834,7 +896,7 @@ export async function insertSupabaseMessage(message: Omit<OrderMessage, "id" | "
       body: message.body,
     }),
   });
-  return Array.isArray(rows) && rows[0] ? mapMessage(rows[0]) : null;
+  return mapMessage(firstRow(rows, "Order message insert"));
 }
 
 export async function insertSupabaseNotification(input: {

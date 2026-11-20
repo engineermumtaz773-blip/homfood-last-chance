@@ -70,7 +70,9 @@ export function buildOrderWhatsAppMessage(order: WhatsAppOrder, settings?: Whats
     `Delivery: Rs. ${money.format(order.deliveryFee)}`,
     `Total: Rs. ${money.format(order.total)}`,
     `Payment method: ${paymentMethod}`,
+    `Payment status: ${(order.paymentStatus || "pending").replace("_", " ")}`,
     `Payment slip: ${slipStatus}`,
+    ...(order.number ? [`Track order: https://www.homefood.engineer/track-order?order=${encodeURIComponent(order.number)}${order.customerPhone ? `&phone=${encodeURIComponent(order.customerPhone)}` : ""}`] : []),
     ...(notes ? ["", `Customer notes / delivery timing:\n${notes}`] : []),
   ].join("\n");
 }
