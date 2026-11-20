@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import {
   readCustomerProfile,
@@ -17,6 +18,8 @@ import {
 import { CustomerAuthModal } from "@/components/customer-auth-modal";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
+import { useCart } from "@/components/cart-provider";
+import { ScheduledOrdersManager } from "@/components/scheduled-orders-manager";
 
 const emptyProfile: CustomerProfile = {
   name: "",
@@ -49,6 +52,8 @@ type ReservationRequest = {
 };
 
 export function ProfilePortal() {
+  const router = useRouter();
+  const { addItem, clearCart } = useCart();
   const [profile, setProfile] = useState<CustomerProfile>(emptyProfile);
   const [orders, setOrders] = useState<OrderRequest[]>([]);
   const [mealPlans, setMealPlans] = useState<MealPlanRequest[]>([]);
@@ -62,6 +67,9 @@ export function ProfilePortal() {
   const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
   const [activeTab, setActiveTab] = useState<ActiveTab>("details");
   const [saving, setSaving] = useState(false);
+  const [reordering, setReordering] = useState("");
+  const [reorderError, setReorderError] = useState("");
+  const [planActionMessage, setPlanActionMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadCustomerRequests = useCallback(async () => {
@@ -256,6 +264,48 @@ export function ProfilePortal() {
       setError("");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to remove address.");
+    }
+  }
+
+  async function handleReorder(number: string) {
+    if (reordering) return;
+    setReordering(number);
+    setReorderError("");
+    try {
+      const response = await fetch("/api/orders/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ number }),
+      });
+      const data = await response.json() as {
+        items?: Array<{ id: number; name: string; portion: string; price: number; quantity: number; specialInstructions?: string }>;
+        error?: string;
+      };
+      if (!response.ok || !Array.isArray(data.items)) throw new Error(data.error || "This order could not be reordered.");
+      clearCart();
+      data.items.forEach((item) => addItem(item));
+      router.push("/checkout");
+    } catch (reorderCause) {
+      setReorderError(reorderCause instanceof Error ? reorderCause.message : "This order could not be reordered.");
+    } finally {
+      setReordering("");
+    }
+  }
+
+  async function handlePlanAction(id: string, status: "active" | "paused" | "cancelled") {
+    setPlanActionMessage("");
+    try {
+      const response = await fetch("/api/subscriptions/manage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Meal plan could not be updated.");
+      await loadCustomerRequests();
+      setPlanActionMessage(`Meal plan ${status}.`);
+    } catch (cause) {
+      setPlanActionMessage(cause instanceof Error ? cause.message : "Meal plan could not be updated.");
     }
   }
 
@@ -1070,6 +1120,7 @@ export function ProfilePortal() {
                   History of your checkout requests submitted from this browser.
                 </p>
               </div>
+              {reorderError && <p className="form-error" role="alert">{reorderError}</p>}
               <Link
                 href="/track-order"
                 style={{
@@ -1152,6 +1203,9 @@ export function ProfilePortal() {
                       <Link href={`/track-order?order=${encodeURIComponent(o.number)}&phone=${encodeURIComponent(profile.phone)}`} style={{ color: "#176b47", fontSize: 11, fontWeight: 700, textDecoration: "underline" }}>
                         {["pending", "confirmed", "new"].includes(o.status.toLowerCase()) ? "Track / cancel" : "Track order"}
                       </Link>
+                      <button type="button" className="checkout-raast-select" disabled={!isVerified || Boolean(reordering)} onClick={() => void handleReorder(o.number)}>
+                        {reordering === o.number ? "Preparing cart…" : "Reorder"}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1165,6 +1219,7 @@ export function ProfilePortal() {
             <h2 style={{ margin: "0 0 6px", fontSize: 20, color: "#0f172a" }}>Meal plans &amp; reservations</h2>
             <p style={{ margin: "0 0 18px", color: "#64748b", fontSize: 14 }}>Requests linked to your verified customer account.</p>
             {requestsError && <p className="form-error" role="alert">{requestsError}</p>}
+            {planActionMessage && <p role="status">{planActionMessage}</p>}
             {!isVerified && <p role="status">Sign in with a verified account to view saved meal plans and reservations.</p>}
             {requestsLoading && <p role="status">Loading your requests…</p>}
             {isVerified && !requestsLoading && !requestsError && !mealPlans.length && !reservations.length && <p>No meal plans or reservations are linked to your account yet.</p>}
@@ -1173,6 +1228,12 @@ export function ProfilePortal() {
               {mealPlans.map((plan) => <article key={plan.id} className="admin-recent-order" style={{ marginBottom: 8 }}>
                 <span><strong>{plan.plan_type} · {plan.meal_slot}</strong><small>{(plan.days_of_week || []).join(", ")} · {plan.start_date}{plan.end_date ? ` – ${plan.end_date}` : ""}</small></span>
                 <span className="admin-recent-status">{plan.status}</span>
+                {plan.status !== "cancelled" && plan.status !== "completed" && <span>
+                  {plan.status === "active"
+                    ? <button type="button" className="checkout-raast-select" onClick={() => void handlePlanAction(plan.id, "paused")}>Pause</button>
+                    : <button type="button" className="checkout-raast-select" onClick={() => void handlePlanAction(plan.id, "active")}>Resume</button>}
+                  <button type="button" className="checkout-raast-select" onClick={() => void handlePlanAction(plan.id, "cancelled")}>Cancel</button>
+                </span>}
               </article>)}
             </section>}
             {reservations.length > 0 && <section style={{ marginTop: 18 }}>
@@ -1182,6 +1243,7 @@ export function ProfilePortal() {
                 <span className="admin-recent-status">{reservation.status}</span>
               </article>)}
             </section>}
+            <ScheduledOrdersManager />
           </div>
         )}
 

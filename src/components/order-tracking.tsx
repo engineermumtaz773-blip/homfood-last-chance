@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { readCustomerProfile, loadCustomerOrders, type OrderRequest } from "@/lib/customer";
@@ -12,6 +12,8 @@ import { broadcastRealtimeEvent, playAlertChime } from "@/lib/realtime-bus";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 import type { StoreSettings } from "@/lib/store-db";
 import { buildOrderWhatsAppMessage, getOrderWhatsAppNumber } from "@/lib/order-whatsapp";
+import { OrderTimeline } from "@/components/order-timeline";
+import { trackFunnelEvent } from "@/lib/funnel";
 
 const stageByStatus: Record<LiveOrderStatus["status"], number> = {
   new: 0,
@@ -80,6 +82,7 @@ export function OrderTracking() {
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [copyMessage, setCopyMessage] = useState("");
   const [cancelSecondsLeft, setCancelSecondsLeft] = useState<number | null>(null);
+  const trackedOrders = useRef(new Set<string>());
   const liveOrderNumber = liveOrder?.number;
   const liveOrderCreatedAt = liveOrder?.created_at;
   const liveOrderStatusName = liveOrder?.status;
@@ -215,6 +218,10 @@ export function OrderTracking() {
         const status = await getLiveOrderStatus(targetNumber, targetPhone);
         if (!active) return;
         setLiveOrder(status);
+        if (!trackedOrders.current.has(status.number)) {
+          trackedOrders.current.add(status.number);
+          trackFunnelEvent("order_tracked", { order_number: status.number });
+        }
         const messagesResponse = await fetch(`/api/order-messages?number=${encodeURIComponent(targetNumber)}&phone=${encodeURIComponent(targetPhone)}`, { cache: "no-store" });
         if (!messagesResponse.ok) throw new Error(`Order messages could not be loaded (HTTP ${messagesResponse.status}).`);
         const messageData = await messagesResponse.json() as { messages?: OrderMessage[] };
@@ -462,6 +469,10 @@ export function OrderTracking() {
               <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: liveOrder.paymentStatus === "paid" ? "#15803d" : "#b45309" }}>
                 Payment: {liveOrder.paymentMethod} · {(liveOrder.paymentStatus || "pending").replace("_", " ")}
               </div>
+              <p className={`receipt-status-badge receipt-${liveOrder.receiptStatus || (liveOrder.paymentStatus === "paid" ? "verified" : liveOrder.paymentStatus === "rejected" ? "rejected" : liveOrder.paymentSlipUrl ? "uploaded" : "pending")}`} role="status">
+                Receipt: {liveOrder.receiptStatus || (liveOrder.paymentStatus === "paid" ? "verified" : liveOrder.paymentStatus === "rejected" ? "rejected" : liveOrder.paymentSlipUrl ? "uploaded" : "pending")}
+              </p>
+              <OrderTimeline order={liveOrder} />
               <div className="tracking-order-summary">
                 <strong>Order summary</strong>
                 {liveOrder.items.map((item, index) => <div key={`${item.id}-${item.portion}-${index}`}><span>{item.name} · {item.portion} × {item.quantity}</span><b>Rs. {(item.price * item.quantity).toLocaleString("en-PK")}</b></div>)}

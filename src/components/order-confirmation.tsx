@@ -8,6 +8,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { getLiveOrderStatus, type LiveOrderStatus } from "@/lib/order-api";
 import type { StoreSettings } from "@/lib/store-db";
 import { generateEmvcoRaastQrString, RAAST_MERCHANT_IBAN, RAAST_MERCHANT_NAME, RAAST_REF_NUMBER } from "@/lib/emvco-qr";
+import { OrderTimeline } from "@/components/order-timeline";
+import { trackFunnelEvent } from "@/lib/funnel";
 
 const money = new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 });
 const cancelWindowMs = 5 * 60 * 1000;
@@ -120,6 +122,7 @@ export function OrderConfirmation() {
       const data = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(data?.error || "Receipt upload failed.");
       setReceiptMessage("Receipt uploaded. Payment is awaiting merchant verification.");
+      trackFunnelEvent("receipt_uploaded", { order_number: order.number });
       await refreshOrder();
     } catch (cause) {
       setReceiptMessage(cause instanceof Error ? cause.message : "Receipt upload failed.");
@@ -151,6 +154,10 @@ export function OrderConfirmation() {
       {order && <>
         <p className="order-confirmation-reference">Order <strong>{order.number}</strong> · Total <strong>PKR {money.format(order.total)}</strong></p>
         <p className="order-confirmation-status" role="status">Kitchen status: <strong>{order.status.replaceAll("_", " ")}</strong> · Payment: <strong>{(order.paymentStatus || "pending").replaceAll("_", " ")}</strong></p>
+        <p className={`receipt-status-badge receipt-${order.receiptStatus || (order.paymentStatus === "paid" ? "verified" : order.paymentStatus === "rejected" ? "rejected" : order.paymentSlipUrl ? "uploaded" : "pending")}`} role="status">
+          Receipt: {order.receiptStatus || (order.paymentStatus === "paid" ? "verified" : order.paymentStatus === "rejected" ? "rejected" : order.paymentSlipUrl ? "uploaded" : "pending")}
+        </p>
+        <OrderTimeline order={order} />
         <div className="order-confirmation-body">
           <section className="order-confirmation-qr">
             <h2>Pay with MCB Raast</h2>
@@ -162,9 +169,14 @@ export function OrderConfirmation() {
               <button type="button" className="checkout-raast-select" onClick={() => window.print()}>Print / Save Challan</button>
             </div>
           </section>
-          <section className="order-confirmation-proof">
+          <section className="order-confirmation-proof" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (file) void uploadReceipt(file);
+          }}>
             <h2>Upload payment receipt</h2>
             <p>Payment stays pending until the kitchen verifies the receipt.</p>
+            <p className="receipt-dropzone-hint">Drop your JPG, PNG, or WebP receipt here, or choose a file below.</p>
             <label className="checkout-raast-select checkout-upload-button">
               {uploadBusy ? "Uploading receipt…" : order.paymentSlipName ? "Replace payment receipt" : "Upload QR / Payment Receipt"}
               <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadBusy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadReceipt(file); event.currentTarget.value = ""; }} />

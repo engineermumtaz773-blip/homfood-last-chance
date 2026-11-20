@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
       paymentStatus: "verification_pending",
       paymentSlipUrl: path,
       paymentSlipName: file.name.slice(0, 255),
+      receiptStatus: "uploaded",
     });
     if (!updated) throw new Error("Receipt uploaded but the matching order could not be updated.");
     if (order.paymentSlipUrl) {
@@ -115,6 +116,7 @@ export async function DELETE(request: NextRequest) {
       paymentStatus: "pending",
       paymentSlipUrl: "",
       paymentSlipName: "",
+      receiptStatus: "pending",
     });
     if (!updated) throw new Error("Receipt was removed but the order could not be updated.");
     return NextResponse.json({ ok: true });

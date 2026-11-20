@@ -9,6 +9,8 @@ import { MobileAppShell } from "@/components/mobile-app-shell";
 import { MobileCartDrawer } from "@/components/mobile-cart-drawer";
 import { FloatingAssistants } from "@/components/floating-assistants";
 import { NewVisitorAuthPrompt } from "@/components/new-visitor-auth-prompt";
+import { CartResumeBanner } from "@/components/cart-resume-banner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export function StorefrontShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -185,8 +187,9 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
       {mounted && (isMobile || isMobileRoute) ? (
         <MobileAppShell hideHeader={isMobileHome}>
           {children}
-          <MobileCartDrawer />
-          <FloatingAssistants />
+          <ErrorBoundary label="mobile cart drawer"><MobileCartDrawer /></ErrorBoundary>
+          <ErrorBoundary label="floating assistants"><FloatingAssistants /></ErrorBoundary>
+          <CartResumeBanner />
         </MobileAppShell>
       ) : (
         <>
@@ -199,9 +202,10 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
             {children}
           </main>
           {!isDesktopAppHome && !isMobileAppHome && <SiteFooter />}
-          <MobileCartDrawer />
-          <FloatingAssistants />
-          {!isDesktopAppHome && !isMobileAppHome && <NewVisitorAuthPrompt />}
+          <ErrorBoundary label="mobile cart drawer"><MobileCartDrawer /></ErrorBoundary>
+          <ErrorBoundary label="floating assistants"><FloatingAssistants /></ErrorBoundary>
+          {!isDesktopAppHome && !isMobileAppHome && <ErrorBoundary label="new visitor prompt"><NewVisitorAuthPrompt /></ErrorBoundary>}
+          <CartResumeBanner />
         </>
       )}
     </>

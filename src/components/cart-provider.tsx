@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { trackFunnelEvent } from "@/lib/funnel";
 
 export type CartLine = { id: number; name: string; portion: string; price: number; quantity: number; specialInstructions?: string };
 type CartContextValue = {
@@ -46,6 +47,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("hmf_cart", JSON.stringify(items));
   }, [items, hydrated]);
   const addItem = useCallback((line: Omit<CartLine, "quantity"> & { quantity?: number }) => {
+    trackFunnelEvent("add_to_cart", { product_id: line.id, quantity: Math.max(1, Math.floor(line.quantity ?? 1)) });
     setItems((current) => {
       const quantity = Math.max(1, Math.floor(line.quantity ?? 1));
       const existing = current.find((item) =>

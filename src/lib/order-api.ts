@@ -37,6 +37,9 @@ export type LiveOrderStatus = {
   paymentStatus?: DbOrder["paymentStatus"];
   paymentSlipUrl?: string;
   paymentSlipName?: string;
+  receiptStatus?: DbOrder["receiptStatus"];
+  kitchenStage?: DbOrder["kitchenStage"];
+  etaMinutes?: number | null;
   customerNote?: string;
   notes?: string;
   adminNotes?: string;
@@ -82,6 +85,9 @@ function mapLiveOrder(order: DbOrder): LiveOrderStatus {
     paymentStatus: order.paymentStatus,
     paymentSlipUrl: order.paymentSlipUrl,
     paymentSlipName: order.paymentSlipName,
+    receiptStatus: order.receiptStatus,
+    kitchenStage: order.kitchenStage,
+    etaMinutes: order.etaMinutes,
     customerNote: order.customerNote,
     notes: order.notes,
     adminNotes: order.adminNotes,
@@ -135,7 +141,7 @@ export async function getLiveOrderStatus(number: string, phone: string): Promise
   if (number.trim()) query.set("number", number.trim());
   if (phone.trim()) query.set("phone", phone.trim());
   if (!query.size) throw new Error("Enter an order number or customer phone number.");
-  const res = await fetch(`/api/orders?${query}`, {
+  const res = await fetch(`/api/orders/track?${query}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(5000),
   });

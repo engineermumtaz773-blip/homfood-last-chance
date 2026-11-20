@@ -27,6 +27,8 @@ export function AdminOrderDetail({ number }: { number: string }) {
   const [error, setError] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
   const [adminMediaUrl, setAdminMediaUrl] = useState("");
+  const [kitchenStage, setKitchenStage] = useState<NonNullable<DbOrder["kitchenStage"]>>("received");
+  const [etaMinutes, setEtaMinutes] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -45,6 +47,8 @@ export function AdminOrderDetail({ number }: { number: string }) {
         if (data.order) {
           setOrder(data.order);
           setStatus(data.order.status);
+          setKitchenStage(data.order.kitchenStage || "received");
+          setEtaMinutes(data.order.etaMinutes == null ? "" : String(data.order.etaMinutes));
           setAdminNotes(data.order.adminNotes || "");
           setAdminMediaUrl(data.order.adminMediaUrl || "");
         }
@@ -79,6 +83,26 @@ export function AdminOrderDetail({ number }: { number: string }) {
       if (data?.order) setOrder(data.order);
       setError(data?.warnings?.join(" ") || "");
     }
+  }
+
+  async function saveKitchenStage() {
+    const response = await fetch("/api/admin/orders/update-stage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        number,
+        stage: kitchenStage,
+        etaMinutes: etaMinutes ? Number(etaMinutes) : null,
+      }),
+    });
+    const data = await response.json().catch(() => null) as { order?: DbOrder; error?: string } | null;
+    if (!response.ok || !data?.order) {
+      setError(data?.error || `Kitchen update could not be saved (HTTP ${response.status}).`);
+      return;
+    }
+    setOrder(data.order);
+    setStatus(data.order.status);
+    setError("");
   }
 
   async function sendReply(event: React.FormEvent<HTMLFormElement>) {
@@ -120,6 +144,15 @@ export function AdminOrderDetail({ number }: { number: string }) {
           <span className="store-eyebrow">ORDER DETAILS</span><h1>{order.number}</h1>
           <p><strong>{order.customerName}</strong> · {order.customerPhone}</p><p>{order.address}, {order.area}</p>
           <div className="admin-status-actions">{statuses.map((item) => <button key={item.value} type="button" className={status === item.value ? "active" : ""} onClick={() => void updateStatus(item.value)}>{item.label}</button>)}</div>
+          <label className="field">Kitchen stage
+            <select value={kitchenStage} onChange={(event) => setKitchenStage(event.target.value as NonNullable<DbOrder["kitchenStage"]>)}>
+              <option value="received">Order received</option><option value="confirmed">Confirmed</option><option value="preparing">Preparing</option><option value="ready">Ready</option><option value="out_for_delivery">Out for delivery</option><option value="delivered">Delivered</option>
+            </select>
+          </label>
+          <label className="field">Estimated time remaining (minutes)
+            <input type="number" min="0" max="1440" value={etaMinutes} onChange={(event) => setEtaMinutes(event.target.value)} />
+          </label>
+          <button type="button" className="add-button" onClick={() => void saveKitchenStage()}>Save kitchen stage &amp; ETA</button>
           <div className="admin-detail-items">{order.items.map((item, index) => <div key={`${item.id}-${index}`}><span>{item.name} · {item.portion} × {item.quantity}</span><strong>PKR {(item.price * item.quantity).toLocaleString()}</strong></div>)}</div>
           <strong className="admin-detail-total">Total PKR {order.total.toLocaleString()}</strong>
           <label className="field">Admin note<textarea value={adminNotes} onChange={(event) => setAdminNotes(event.target.value)} maxLength={1000} placeholder="Kitchen or delivery instruction for the customer" /></label>

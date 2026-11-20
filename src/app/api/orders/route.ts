@@ -198,6 +198,8 @@ export async function PATCH(request: NextRequest) {
       paymentStatus: body.paymentStatus,
       paymentSlipUrl: body.paymentSlipUrl,
       paymentSlipName: body.paymentSlipName,
+      ...(body.paymentStatus === "paid" ? { receiptStatus: "verified" as const } : {}),
+      ...(body.paymentStatus === "rejected" ? { receiptStatus: "rejected" as const } : {}),
       customerNote: body.customerNote,
       adminNotes: body.adminNotes,
       adminMediaUrl: body.adminMediaUrl,

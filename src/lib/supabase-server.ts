@@ -165,6 +165,9 @@ function mapOrder(row: SupabaseRow): DbOrder {
     total: numberValue(row, "total", "total_amount") || 0,
     status: (stringValue(row, "status") || "pending") as DbOrderStatus,
     paymentStatus: (stringValue(row, "payment_status") || "pending") as DbOrder["paymentStatus"],
+    receiptStatus: (stringValue(row, "receipt_status") || "pending") as DbOrder["receiptStatus"],
+    kitchenStage: (stringValue(row, "kitchen_stage") || "received") as DbOrder["kitchenStage"],
+    etaMinutes: numberValue(row, "eta_minutes") ?? null,
     paymentSlipUrl: stringValue(row, "payment_slip_url"),
     paymentSlipName: stringValue(row, "payment_slip_name"),
     customerNote: stringValue(row, "customer_note"),
@@ -363,6 +366,9 @@ export async function insertSupabaseOrder(order: DbOrder) {
       total: order.total,
       status: order.status,
       payment_status: order.paymentStatus,
+      receipt_status: order.receiptStatus || "pending",
+      kitchen_stage: order.kitchenStage || "received",
+      eta_minutes: order.etaMinutes ?? null,
       payment_slip_url: order.paymentSlipUrl,
       payment_slip_name: order.paymentSlipName,
       customer_note: order.customerNote,
@@ -383,11 +389,14 @@ export async function insertSupabaseOrder(order: DbOrder) {
 export async function updateSupabaseOrder(number: string, status: DbOrderStatus, details?: {
   riderName?: string;
   riderPhone?: string;
-  estimatedDelivery?: string;
+  estimatedDelivery?: string | null;
   notes?: string;
   paymentStatus?: DbOrder["paymentStatus"];
   paymentSlipUrl?: string;
   paymentSlipName?: string;
+  receiptStatus?: DbOrder["receiptStatus"];
+  kitchenStage?: DbOrder["kitchenStage"];
+  etaMinutes?: number | null;
   customerNote?: string;
   adminNotes?: string;
   adminMediaUrl?: string;
@@ -396,13 +405,23 @@ export async function updateSupabaseOrder(number: string, status: DbOrderStatus,
     method: "PATCH",
     body: JSON.stringify({
       status,
+      kitchen_stage: details?.kitchenStage || (
+        status === "confirmed" ? "confirmed" :
+          status === "preparing" ? "preparing" :
+            status === "ready" ? "ready" :
+              status === "out_for_delivery" || status === "delivering" || status === "arriving" ? "out_for_delivery" :
+                status === "delivered" || status === "completed" ? "delivered" : "received"
+      ),
       ...(details?.riderName ? { rider_name: details.riderName } : {}),
       ...(details?.riderPhone ? { rider_phone: details.riderPhone } : {}),
-      ...(details?.estimatedDelivery ? { estimated_delivery: details.estimatedDelivery } : {}),
+      ...(details?.estimatedDelivery !== undefined ? { estimated_delivery: details.estimatedDelivery } : {}),
       ...(details?.notes ? { notes: details.notes } : {}),
       ...(details?.paymentStatus ? { payment_status: details.paymentStatus } : {}),
       ...(details?.paymentSlipUrl !== undefined ? { payment_slip_url: details.paymentSlipUrl } : {}),
       ...(details?.paymentSlipName !== undefined ? { payment_slip_name: details.paymentSlipName } : {}),
+      ...(details?.receiptStatus ? { receipt_status: details.receiptStatus } : {}),
+      ...(details?.kitchenStage ? { kitchen_stage: details.kitchenStage } : {}),
+      ...(details?.etaMinutes !== undefined ? { eta_minutes: details.etaMinutes } : {}),
       ...(details?.customerNote !== undefined ? { customer_note: details.customerNote } : {}),
       ...(details?.adminNotes !== undefined ? { admin_note: details.adminNotes } : {}),
       ...(details?.adminMediaUrl !== undefined ? { admin_video_url: details.adminMediaUrl } : {}),
@@ -701,7 +720,41 @@ export async function deleteSupabaseCustomer(id: string) {
   return true;
 }
 
+export async function getSupabaseProfileIdForCustomer(customerId: string) {
+  const directProfiles = rowsOf(
+    await request(`profiles?id=eq.${encodeURIComponent(customerId)}&select=id`),
+    "Customer profile lookup",
+  );
+  if (directProfiles[0]) return stringValue(directProfiles[0], "id") || null;
+
+  const customers = rowsOf(
+    await request(`customers?id=eq.${encodeURIComponent(customerId)}&select=auth_user_id`),
+    "Customer auth profile lookup",
+  );
+  const authUserId = customers[0] ? stringValue(customers[0], "auth_user_id") : undefined;
+  if (!authUserId) return null;
+
+  const authProfiles = rowsOf(
+    await request(`profiles?id=eq.${encodeURIComponent(authUserId)}&select=id`),
+    "Customer auth profile lookup",
+  );
+  return authProfiles[0] ? stringValue(authProfiles[0], "id") || null : null;
+}
+
 export async function getSupabaseCustomerFavorites(customerId: string) {
+  try {
+    const profileId = await getSupabaseProfileIdForCustomer(customerId);
+    if (profileId) {
+      const rows = rowsOf(await request(`profiles?id=eq.${encodeURIComponent(profileId)}&select=favorites`), "Profile favorites query");
+      if (rows[0]) {
+        const ids = value(rows[0], "favorites");
+        return Array.isArray(ids) ? ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : [];
+      }
+    }
+  } catch (error) {
+    if (!isSupabaseSchemaMismatch(error)) throw error;
+    console.warn("Profile favorites are not available in the current schema; using the legacy customer favorites column.");
+  }
   const rows = rowsOf(await request(`customers?id=eq.${encodeURIComponent(customerId)}&select=favorite_dish_ids`), "Customer favorites query");
   if (!rows[0]) return null;
   const ids = value(rows[0], "favorite_dish_ids");
@@ -710,13 +763,102 @@ export async function getSupabaseCustomerFavorites(customerId: string) {
 
 export async function updateSupabaseCustomerFavorites(customerId: string, ids: number[]) {
   const favorites = [...new Set(ids)].filter((id) => Number.isSafeInteger(id) && id > 0).slice(0, 100);
-  const rows = rowsOf(await request(`customers?id=eq.${encodeURIComponent(customerId)}&select=favorite_dish_ids`, {
-    method: "PATCH",
-    body: JSON.stringify({ favorite_dish_ids: favorites }),
-  }), "Customer favorites update");
+  let rows: SupabaseRow[] = [];
+  try {
+    const profileId = await getSupabaseProfileIdForCustomer(customerId);
+    if (profileId) {
+      rows = rowsOf(await request(`profiles?id=eq.${encodeURIComponent(profileId)}&select=favorites`, {
+        method: "PATCH",
+        body: JSON.stringify({ favorites }),
+      }), "Profile favorites update");
+    }
+  } catch (error) {
+    if (!isSupabaseSchemaMismatch(error)) throw error;
+    console.warn("Profile favorites are not available in the current schema; saving to the legacy customer favorites column.");
+  }
+  if (!rows[0]) {
+    rows = rowsOf(await request(`customers?id=eq.${encodeURIComponent(customerId)}&select=favorite_dish_ids`, {
+      method: "PATCH",
+      body: JSON.stringify({ favorite_dish_ids: favorites }),
+    }), "Customer favorites update");
+  }
   if (!rows[0]) return null;
-  const saved = value(rows[0], "favorite_dish_ids");
+  const saved = value(rows[0], "favorites", "favorite_dish_ids");
   return Array.isArray(saved) ? saved.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : [];
+}
+
+export async function getSupabaseCartUpsells() {
+  const rows = rowsOf(await request("cart_upsells?select=product_id,label,default_qty,menu_items(*)&is_active=eq.true&order=created_at.desc&limit=12"), "Cart upsells query");
+  return rows.flatMap((row) => {
+    const dishRow = value(row, "menu_items");
+    if (!dishRow || typeof dishRow !== "object" || Array.isArray(dishRow)) return [];
+    return [{
+      dish: mapDish(dishRow as SupabaseRow),
+      label: stringValue(row, "label") || "Popular with your order",
+      defaultQty: numberValue(row, "default_qty") || 1,
+    }];
+  });
+}
+
+export async function insertSupabaseFunnelEvent(event: string, metadata: Record<string, string | number | boolean>) {
+  await request("storefront_funnel_events", {
+    method: "POST",
+    body: JSON.stringify({ event, metadata }),
+  });
+}
+
+export async function getSupabaseAddresses(userId: string) {
+  return rowsOf(await request(`addresses?user_id=eq.${encodeURIComponent(userId)}&select=*&order=is_default.desc,created_at.desc`), "Customer addresses query");
+}
+
+export async function createSupabaseAddress(input: { userId: string; label: string; line1: string; city: string; zone: string; isDefault: boolean }) {
+  if (input.isDefault) {
+    await request(`addresses?user_id=eq.${encodeURIComponent(input.userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_default: false }),
+    });
+  }
+  const row = firstRow(await request("addresses?on_conflict=user_id,line1,zone", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({
+      user_id: input.userId,
+      label: input.label,
+      line1: input.line1,
+      city: input.city,
+      zone: input.zone,
+      is_default: input.isDefault,
+    }),
+  }), "Customer address insert");
+  return row;
+}
+
+export async function deleteSupabaseAddress(userId: string, id: string) {
+  await request(`addresses?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export async function createSupabaseScheduledOrder(input: { userId: string; slotTime: string; planId?: string; orderNumber: string }) {
+  return firstRow(await request("scheduled_orders", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: input.userId,
+      slot_time: input.slotTime,
+      plan_id: input.planId || null,
+      order_number: input.orderNumber,
+    }),
+  }), "Scheduled order insert");
+}
+
+export async function getSupabaseScheduledOrders(userId: string) {
+  return rowsOf(await request(`scheduled_orders?user_id=eq.${encodeURIComponent(userId)}&select=*&order=slot_time.asc`), "Scheduled orders query");
+}
+
+export async function cancelSupabaseScheduledOrder(userId: string, id: string) {
+  const rows = rowsOf(await request(`scheduled_orders?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}&status=eq.scheduled&select=*`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "cancelled" }),
+  }), "Scheduled order cancellation");
+  return rows[0] || null;
 }
 
 export async function getSupabaseDeliveryZones() {
@@ -749,6 +891,18 @@ export async function updateSupabaseSubscription(id: string, status: "active" | 
     method: "PATCH",
     body: JSON.stringify({ status }),
   }), "Meal subscription update");
+  return rows[0] || null;
+}
+
+export async function updateSupabaseCustomerSubscription(
+  id: string,
+  customerId: string,
+  status: "active" | "paused" | "cancelled",
+) {
+  const rows = rowsOf(await request(`meal_subscriptions?id=eq.${encodeURIComponent(id)}&customer_id=eq.${encodeURIComponent(customerId)}&select=*`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  }), "Customer meal subscription update");
   return rows[0] || null;
 }
 

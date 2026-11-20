@@ -108,6 +108,9 @@ export type DbOrder = {
   total: number;
   status: DbOrderStatus;
   paymentStatus: DbPaymentStatus;
+  receiptStatus?: "pending" | "uploaded" | "verified" | "rejected";
+  kitchenStage?: "received" | "confirmed" | "preparing" | "ready" | "out_for_delivery" | "delivered";
+  etaMinutes?: number | null;
   paymentSlipUrl?: string;
   paymentSlipName?: string;
   customerNote?: string;

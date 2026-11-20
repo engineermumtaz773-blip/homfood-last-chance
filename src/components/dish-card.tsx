@@ -10,8 +10,8 @@ import { motion, useReducedMotion } from "framer-motion";
 import { useSiteSettings } from "@/components/site-settings";
 import { acquireScrollLock } from "@/lib/scroll-lock";
 import { useKitchenAvailability } from "@/hooks/use-kitchen-availability";
-import { getFavoriteDishIds, toggleFavoriteDish, FAVORITES_CHANGE_EVENT } from "@/lib/favorites";
 import { recordRecentDish } from "@/lib/recent-dishes";
+import { FavoriteButton } from "@/components/favorite-button";
 
 function AnimatedPrice({ value }: { value: number }) {
   const [displayValue, setDisplayValue] = useState(value);
@@ -45,7 +45,6 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
   const [customizing, setCustomizing] = useState(false);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [imageFailed, setImageFailed] = useState(false);
-  const [favorite, setFavorite] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
   const [spiceLevel, setSpiceLevel] = useState<"Mild" | "Medium" | "Hot">("Medium");
@@ -73,12 +72,6 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
     setSpiceLevel("Medium");
     if (goToCheckout) router.push("/checkout");
   };
-  useEffect(() => {
-    const updateFavorite = () => setFavorite(getFavoriteDishIds().includes(dish.id));
-    updateFavorite();
-    window.addEventListener(FAVORITES_CHANGE_EVENT, updateFavorite);
-    return () => window.removeEventListener(FAVORITES_CHANGE_EVENT, updateFavorite);
-  }, [dish.id]);
   async function shareDish() {
     const url = `${window.location.origin}/menu#dish-${dish.id}`;
     try {
@@ -111,7 +104,7 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
         ? <motion.div className="dish-photo-motion" whileHover={reducedMotion ? undefined : { scale: 1.045, x: -3 }} transition={{ type: "spring", stiffness: 80, damping: 22 }}><Image src={dish.imageUrl} alt={localized.name} fill sizes="(max-width: 640px) 92vw, (max-width: 1000px) 45vw, 30vw" unoptimized className="dish-photo" onError={() => setImageFailed(true)} /></motion.div>
         : <span className="dish-image-fallback" role="img" aria-label={`${localized.name} image unavailable`}>{dish.image}</span>}
         </button>
-        <button type="button" className={`dish-favorite-button ${favorite ? "active" : ""}`} aria-label={favorite ? `Remove ${localized.name} from favorites` : `Add ${localized.name} to favorites`} aria-pressed={favorite} onClick={() => setFavorite(toggleFavoriteDish(dish.id))}>{favorite ? "♥" : "♡"}</button>
+        <FavoriteButton dishId={dish.id} />
       </div>
       <div className="dish-info">
         <div className="dish-title-row"><h3>{localized.name}</h3><span className="dish-price">Rs. <AnimatedPrice value={portion.price} /></span></div>

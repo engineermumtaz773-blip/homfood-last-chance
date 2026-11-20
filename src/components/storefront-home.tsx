@@ -27,12 +27,6 @@ const promotions = [
   { eyebrow: "Made with care in Bahawalpur", title: "Dinner is sorted", copy: "Comforting homemade meals, delivered to your door", code: "Order from the kitchen", theme: "promo-green" },
 ];
 
-const testimonials = [
-  { quote: "The chana pulao tastes exactly like a Sunday lunch at home. Fresh, fragrant and delivered warm.", name: "Ayesha R.", meta: "University Chowk", avatar: "https://i.pravatar.cc/96?img=47" },
-  { quote: "The portions are generous and the kitchen updates are so helpful. Home Made Food is now our go-to.", name: "Hamza K.", meta: "Model Town", avatar: "https://i.pravatar.cc/96?img=12" },
-  { quote: "The crispy chicken burger is genuinely excellent. You can taste that it was made to order.", name: "Mariam S.", meta: "Goheer Town", avatar: "https://i.pravatar.cc/96?img=32" },
-];
-
 const reveal = {
   hidden: { opacity: 0, y: 28 },
   visible: { opacity: 1, y: 0 },
@@ -46,9 +40,17 @@ export function StorefrontHome({ dishes }: { dishes: Dish[] }) {
   const [heroIndex, setHeroIndex] = useState(0);
   const [titleIndex, setTitleIndex] = useState(0);
   const [testimonialIndex, setTestimonialIndex] = useState(0);
+  const [verifiedReviews, setVerifiedReviews] = useState<Array<{ rating: number; comment: string; created_at: string; menu_item_id: number }>>([]);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [statusClock, setStatusClock] = useState(() => Date.now());
   const liveCatalog = useLiveDishes(dishes);
+  useEffect(() => {
+    let active = true;
+    const load = () => fetch("/api/reviews", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data: { reviews?: typeof verifiedReviews } | null) => { if (active && Array.isArray(data?.reviews)) setVerifiedReviews(data.reviews); }).catch(() => undefined);
+    void load();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
   const heroSlides = useMemo(() => {
     const findDish = (terms: string[], fallback: string) => liveCatalog.dishes.find((dish) => terms.some((term) => dish.name.toLowerCase().includes(term)) && dish.imageUrl)?.imageUrl || fallback;
     return [
@@ -78,9 +80,10 @@ export function StorefrontHome({ dishes }: { dishes: Dish[] }) {
     return () => window.clearInterval(timer);
   }, [signatureDishes.length]);
   useEffect(() => {
-    const timer = window.setInterval(() => setTestimonialIndex((index) => (index + 1) % testimonials.length), 5200);
+    if (verifiedReviews.length < 2) return;
+    const timer = window.setInterval(() => setTestimonialIndex((index) => (index + 1) % verifiedReviews.length), 5200);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [verifiedReviews.length]);
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -229,8 +232,9 @@ export function StorefrontHome({ dishes }: { dishes: Dish[] }) {
       <motion.section className="store-section reviews-section" aria-labelledby="reviews-title" variants={reveal} initial="hidden" whileInView="visible" viewport={{ once: true, amount: .14 }} transition={{ duration: .6 }}>
         <div className="store-section-heading"><div><span className="store-eyebrow">FROM OUR TABLE</span><h2 id="reviews-title">Loved by local foodies.</h2></div></div>
         <div className="testimonial-stage">
-          <AnimatePresence mode="wait"><motion.article key={testimonials[testimonialIndex].name} className="testimonial-card glass-card" initial={{ opacity: 0, x: 25 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -25 }} transition={{ duration: .35 }}><div className="testimonial-stars">★★★★★</div><blockquote>“{testimonials[testimonialIndex].quote}”</blockquote><div className="testimonial-author"><Image src={testimonials[testimonialIndex].avatar} alt="" width={48} height={48} unoptimized /><div><strong>{testimonials[testimonialIndex].name}</strong><span>{testimonials[testimonialIndex].meta} · Verified order</span></div></div></motion.article></AnimatePresence>
-          <div className="testimonial-controls"><button type="button" aria-label="Previous testimonial" onClick={() => setTestimonialIndex((index) => (index + testimonials.length - 1) % testimonials.length)}>←</button><span>{testimonials[testimonialIndex].name}</span><button type="button" aria-label="Next testimonial" onClick={() => setTestimonialIndex((index) => (index + 1) % testimonials.length)}>→</button></div>
+          {verifiedReviews.length ? <AnimatePresence mode="wait"><motion.article key={`${verifiedReviews[testimonialIndex % verifiedReviews.length].created_at}-${testimonialIndex}`} className="testimonial-card glass-card" initial={{ opacity: 0, x: 25 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -25 }} transition={{ duration: .35 }}><div className="testimonial-stars" aria-label={`${verifiedReviews[testimonialIndex % verifiedReviews.length].rating} out of 5 stars`}>{"★".repeat(verifiedReviews[testimonialIndex % verifiedReviews.length].rating)}{"☆".repeat(5 - verifiedReviews[testimonialIndex % verifiedReviews.length].rating)}</div><blockquote>“{verifiedReviews[testimonialIndex % verifiedReviews.length].comment}”</blockquote><div className="testimonial-author"><div aria-hidden="true">✓</div><div><strong>Verified customer</strong><span>{new Date(verifiedReviews[testimonialIndex % verifiedReviews.length].created_at).toLocaleDateString()} · Verified order</span></div></div></motion.article></AnimatePresence> : <p className="store-empty">Verified customer reviews will appear here after they are approved.</p>}
+          {verifiedReviews.length > 1 && <div className="testimonial-controls"><button type="button" aria-label="Previous review" onClick={() => setTestimonialIndex((index) => (index + verifiedReviews.length - 1) % verifiedReviews.length)}>←</button><span>{testimonialIndex + 1} / {verifiedReviews.length}</span><button type="button" aria-label="Next review" onClick={() => setTestimonialIndex((index) => (index + 1) % verifiedReviews.length)}>→</button></div>}
+          <Link href="/profile#orders" className="store-text-link">Review a delivered order</Link>
         </div>
       </motion.section>
 

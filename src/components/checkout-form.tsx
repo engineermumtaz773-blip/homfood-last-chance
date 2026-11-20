@@ -19,6 +19,10 @@ import type { StoreSettings } from "@/lib/store-db";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 import type { LiveOrderStatus } from "@/lib/order-api";
 import { buildOrderWhatsAppMessage, getOrderWhatsAppNumber } from "@/lib/order-whatsapp";
+import { CartUpsells } from "@/components/cart-upsells";
+import { SchedulePicker } from "@/components/schedule-picker";
+import { BAHAWALPUR_ZONES, calculateDeliveryFee } from "@/lib/delivery-zones";
+import { trackFunnelEvent } from "@/lib/funnel";
 
 const paymentSessionDuration = 5 * 60 * 1000;
 const paymentMethod = "Digital Payment";
@@ -41,6 +45,8 @@ export function CheckoutForm() {
   const [zoneError, setZoneError] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryArea, setDeliveryArea] = useState("");
+  const [scheduleSlot, setScheduleSlot] = useState("");
+  const [schedulePlanId, setSchedulePlanId] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const raastStore = useRaastSessionStore();
   const raastSession = useSyncExternalStore(raastStore.subscribe, raastStore.getClientSnapshot, raastStore.getServerSnapshot);
@@ -58,11 +64,14 @@ export function CheckoutForm() {
   const selectedZone = deliveryZones.find((zone) => zone.zone_name === deliveryArea);
   const subtotal = items.reduce((total, item) => total + item.price * item.quantity, 0);
   const freeDeliveryThreshold = storeSettings?.delivery.freeDeliveryThreshold || 0;
-  const deliveryFee = selectedZone && (!freeDeliveryThreshold || subtotal < freeDeliveryThreshold) ? selectedZone.delivery_fee : 0;
+  const deliveryFee = calculateDeliveryFee(selectedZone, subtotal, freeDeliveryThreshold);
   const total = subtotal + deliveryFee;
   useEffect(() => {
     if (slipPreviewUrl) return () => URL.revokeObjectURL(slipPreviewUrl);
   }, [slipPreviewUrl]);
+  useEffect(() => {
+    if (items.length) trackFunnelEvent("checkout_started", { item_count: items.length });
+  }, [items.length]);
   useEffect(() => {
     if (!raastSession) return;
     const openPaymentFrame = window.requestAnimationFrame(() => setPaymentModalOpen(true));
@@ -122,6 +131,7 @@ export function CheckoutForm() {
       setUploadedSlipName(data?.order?.paymentSlipName || file.name);
       setSlipUploadStatus("uploaded");
       setSlipUploadMessage("Uploaded ✓ · Payment is awaiting merchant verification.");
+      trackFunnelEvent("receipt_uploaded", { order_number: raastSession.orderNumber });
     } catch (error) {
       setSlipUploadStatus("error");
       setSlipUploadMessage(error instanceof Error ? error.message : "Payment receipt upload failed.");
@@ -186,6 +196,17 @@ export function CheckoutForm() {
         setCustomerEmail(profile.email || "");
         setSavedAddresses(profile.addresses);
         setDeliveryAddress(profile.addresses[0] || "");
+        if (profile.emailVerified || profile.phoneVerified) {
+          void fetch("/api/addresses", { cache: "no-store" }).then(async (response) => {
+            if (response.status === 401) return;
+            const data = await response.json() as { addresses?: Array<{ line1: string; zone: string }>; error?: string };
+            if (!response.ok) throw new Error(data.error || `Saved addresses request failed (${response.status}).`);
+            if (Array.isArray(data.addresses)) {
+              const addresses = data.addresses.map((address) => `${address.line1}, ${address.zone}`);
+              setSavedAddresses((current) => [...new Set([...addresses, ...current])].slice(0, 10));
+            }
+          }).catch((error: unknown) => console.error("Could not load saved database addresses.", error));
+        }
       }
     });
     const onCustomerAuth = (event: Event) => {
@@ -214,7 +235,10 @@ export function CheckoutForm() {
         }
       } catch (error) {
         console.error("Could not load delivery zones.", error);
-        if (active) setZoneError(error instanceof Error ? error.message : "Delivery zones are unavailable.");
+        if (active) {
+          setDeliveryZones(BAHAWALPUR_ZONES);
+          setZoneError("Live delivery pricing is unavailable; estimated Bahawalpur rates are shown.");
+        }
       }
     };
     void loadZones();
@@ -265,13 +289,21 @@ export function CheckoutForm() {
       setIsSubmitting(false);
       return;
     }
+    if (scheduleSlot) {
+      const slotTime = new Date(scheduleSlot).getTime();
+      if (!Number.isFinite(slotTime) || slotTime < Date.now() + 15 * 60_000 || slotTime > Date.now() + 30 * 24 * 60 * 60_000) {
+        setSubmitError("Choose a delivery slot at least 15 minutes from now and within 30 days.");
+        setIsSubmitting(false);
+        return;
+      }
+    }
     if (zoneError && !deliveryZones.length) {
       setSubmitError("Delivery areas could not be loaded. Please try again before placing your order.");
       setIsSubmitting(false);
       return;
     }
     const notes = [
-      `Requested delivery: ${deliveryTime}`,
+      `Requested delivery: ${scheduleSlot ? new Date(scheduleSlot).toLocaleString("en-PK") : deliveryTime}`,
       "Payment method: Dynamic MCB Raast QR. Payment remains pending merchant verification until approved.",
     ].join("\n");
     let order: LiveOrderStatus;
@@ -306,6 +338,46 @@ export function CheckoutForm() {
 
     const orderNumber = order.number;
     const orderTotal = order.total;
+    const currentProfile = readCustomerProfile();
+    const persistenceWarnings = [...(order.persistenceWarnings || [])];
+    trackFunnelEvent("order_placed", { order_number: orderNumber, total: orderTotal });
+    if (currentProfile?.emailVerified || currentProfile?.phoneVerified) {
+      try {
+        const addressResponse = await fetch("/api/addresses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: "Home", line1: address, city: "Bahawalpur", zone: area, isDefault: true }),
+        });
+        if (!addressResponse.ok) {
+          const addressData = await addressResponse.json() as { error?: string };
+          throw new Error(addressData.error || "Address could not be saved.");
+        }
+      } catch (error) {
+        console.error("Order was placed, but the saved address could not be synchronized.", error);
+        persistenceWarnings.push("Your order was saved, but this address could not be added to your saved addresses.");
+      }
+    }
+    if (scheduleSlot) {
+      try {
+        const scheduleResponse = await fetch("/api/schedule/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slotTime: new Date(scheduleSlot).toISOString(),
+            planId: schedulePlanId || undefined,
+            orderNumber,
+          }),
+        });
+        if (!scheduleResponse.ok) {
+          const scheduleData = await scheduleResponse.json() as { error?: string };
+          throw new Error(scheduleData.error || "Scheduled delivery could not be saved.");
+        }
+      } catch (error) {
+        console.error("Order was placed, but the scheduled delivery could not be saved.", error);
+        persistenceWarnings.push(error instanceof Error ? error.message : "Your order was saved, but scheduling did not finish.");
+      }
+    }
+    order.persistenceWarnings = persistenceWarnings;
     const message = buildOrderWhatsAppMessage(order, storeSettings || undefined);
     setOrderConfirmation(order);
     try {
@@ -314,7 +386,6 @@ export function CheckoutForm() {
       console.warn("The order was saved, but could not be remembered on this device.", error);
     }
     {
-      const currentProfile = readCustomerProfile();
       const previousAddresses = currentProfile?.addresses ?? [];
       const fullAddress = `${address}, ${area}`;
       saveOrderRequest({
@@ -397,7 +468,9 @@ export function CheckoutForm() {
           <label className="field full">{t("deliveryArea")}<select name="area" required value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)}><option value="" disabled>{t("chooseArea")}</option>{deliveryZones.length ? deliveryZones.map((zone) => <option key={zone.id} value={zone.zone_name}>{zone.zone_name} · Rs. {zone.delivery_fee}</option>) : (storeSettings?.delivery.deliveryAreas || ["Bahawalpur city", "Model Town", "University Chowk", "Other Bahawalpur area"]).map((area) => <option key={area}>{area}</option>)}</select>{selectedZone && <small>Estimated delivery: {selectedZone.estimated_minutes} min{selectedZone.min_order_amount ? ` · Minimum Rs. ${selectedZone.min_order_amount}` : ""}</small>}{zoneError && <small role="alert">Live zone pricing is unavailable. Please retry shortly.</small>}</label>
           <label className="field full">{t("fullAddress")}<textarea name="address" required autoComplete="street-address" value={deliveryAddress} onChange={(event) => { setDeliveryAddress(event.target.value); setSelectedSavedAddress(""); }} placeholder={t("fullAddress")} /></label>
           <label className="field full">Delivery timing<select name="deliveryTime" defaultValue="As soon as possible"><option>As soon as possible</option><option>Today · 12:00–2:00 PM</option><option>Today · 2:00–5:00 PM</option><option>Today · 6:00–9:00 PM</option></select></label>
+          <div className="field full"><SchedulePicker value={scheduleSlot} onChange={setScheduleSlot} planId={schedulePlanId} onPlanChange={setSchedulePlanId} /></div>
         </div>
+        {!raastSession && <CartUpsells />}
         {submitError && <p className="form-error" role="alert">{submitError}</p>}
         <button className="add-button checkout-submit-button" type="submit" disabled={isSubmitting || kitchen?.available === false} aria-describedby={kitchen?.available === false ? "checkout-kitchen-status" : undefined}>{isSubmitting ? "Placing order…" : kitchen?.available === false ? "Ordering paused" : "Confirm & Place Order"} <span aria-hidden="true">→</span></button>
         {kitchen === null && <small className="checkout-kitchen-checking" role="status">Kitchen hours could not be refreshed. The order service will validate availability when you submit.</small>}

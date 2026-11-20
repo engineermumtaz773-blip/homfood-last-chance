@@ -1,0 +1,120 @@
+-- Additive, repeatable schema support for the Home Made Food storefront upgrades.
+ALTER TABLE public.orders
+  ADD COLUMN IF NOT EXISTS kitchen_stage TEXT NOT NULL DEFAULT 'received',
+  ADD COLUMN IF NOT EXISTS eta_minutes INTEGER,
+  ADD COLUMN IF NOT EXISTS receipt_status TEXT NOT NULL DEFAULT 'pending';
+
+UPDATE public.orders
+SET kitchen_stage = CASE
+  WHEN status IN ('confirmed') THEN 'confirmed'
+  WHEN status IN ('preparing') THEN 'preparing'
+  WHEN status IN ('ready') THEN 'ready'
+  WHEN status IN ('out_for_delivery', 'delivering', 'arriving') THEN 'out_for_delivery'
+  WHEN status IN ('delivered', 'completed') THEN 'delivered'
+  ELSE 'received'
+END
+WHERE kitchen_stage = 'received';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_kitchen_stage_check' AND conrelid = 'public.orders'::regclass) THEN
+    ALTER TABLE public.orders ADD CONSTRAINT orders_kitchen_stage_check
+      CHECK (kitchen_stage IN ('received', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_eta_minutes_check' AND conrelid = 'public.orders'::regclass) THEN
+    ALTER TABLE public.orders ADD CONSTRAINT orders_eta_minutes_check CHECK (eta_minutes IS NULL OR eta_minutes BETWEEN 0 AND 1440);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_receipt_status_check' AND conrelid = 'public.orders'::regclass) THEN
+    ALTER TABLE public.orders ADD CONSTRAINT orders_receipt_status_check
+      CHECK (receipt_status IN ('pending', 'uploaded', 'verified', 'rejected'));
+  END IF;
+END;
+$$;
+
+UPDATE public.orders
+SET receipt_status = CASE
+  WHEN payment_status = 'paid' THEN 'verified'
+  WHEN payment_status = 'verification_pending' AND NULLIF(payment_slip_url, '') IS NOT NULL THEN 'uploaded'
+  WHEN payment_status = 'rejected' THEN 'rejected'
+  ELSE 'pending'
+END
+WHERE receipt_status = 'pending';
+
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS favorites BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[];
+
+CREATE TABLE IF NOT EXISTS public.addresses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  label TEXT NOT NULL DEFAULT 'Home' CHECK (CHAR_LENGTH(BTRIM(label)) BETWEEN 1 AND 60),
+  line1 TEXT NOT NULL CHECK (CHAR_LENGTH(BTRIM(line1)) BETWEEN 3 AND 300),
+  city TEXT NOT NULL DEFAULT 'Bahawalpur' CHECK (CHAR_LENGTH(BTRIM(city)) BETWEEN 2 AND 80),
+  zone TEXT NOT NULL CHECK (CHAR_LENGTH(BTRIM(zone)) BETWEEN 2 AND 100),
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS addresses_user_default_idx ON public.addresses (user_id, is_default DESC, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS addresses_user_line_zone_unique_idx ON public.addresses (user_id, line1, zone);
+ALTER TABLE public.addresses ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.addresses FROM anon, authenticated;
+GRANT ALL ON public.addresses TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.cart_upsells (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id BIGINT NOT NULL REFERENCES public.menu_items(id) ON DELETE CASCADE,
+  label TEXT NOT NULL DEFAULT 'Popular with your order' CHECK (CHAR_LENGTH(BTRIM(label)) BETWEEN 1 AND 100),
+  default_qty INTEGER NOT NULL DEFAULT 1 CHECK (default_qty BETWEEN 1 AND 10),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (product_id)
+);
+ALTER TABLE public.cart_upsells ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.cart_upsells FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.cart_upsells TO service_role;
+
+INSERT INTO public.cart_upsells (product_id, label, default_qty)
+SELECT id, 'A popular addition', 1
+FROM public.menu_items
+WHERE COALESCE(available, TRUE) = TRUE
+  AND COALESCE(sold_out, FALSE) = FALSE
+  AND deleted_at IS NULL
+ORDER BY featured DESC, id
+LIMIT 4
+ON CONFLICT (product_id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.scheduled_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  slot_time TIMESTAMPTZ NOT NULL,
+  plan_id UUID REFERENCES public.meal_subscriptions(id) ON DELETE SET NULL,
+  order_number TEXT REFERENCES public.orders(number) ON UPDATE CASCADE ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS scheduled_orders_user_slot_idx ON public.scheduled_orders (user_id, slot_time);
+ALTER TABLE public.scheduled_orders ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.scheduled_orders FROM anon, authenticated;
+GRANT ALL ON public.scheduled_orders TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.storefront_funnel_events (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  event TEXT NOT NULL CHECK (event IN ('menu_loaded', 'add_to_cart', 'checkout_started', 'order_placed', 'receipt_uploaded', 'order_tracked')),
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS storefront_funnel_events_created_idx ON public.storefront_funnel_events (created_at DESC);
+ALTER TABLE public.storefront_funnel_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.storefront_funnel_events FROM anon, authenticated;
+GRANT INSERT ON public.storefront_funnel_events TO service_role;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_updated_at_addresses') THEN
+    CREATE TRIGGER set_updated_at_addresses BEFORE UPDATE ON public.addresses
+      FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+  END IF;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';
