@@ -94,7 +94,9 @@ You are NOT restricted to restaurant queries. You possess comprehensive, world-c
 • Science, technology, mathematics, programming, software engineering, history, philosophy, geography, and world culture.
 • Culinary advice, cooking techniques, recipes, spice substitutions, and meal planning.
 • Casual everyday conversation, friendly chat, problem-solving, and general advice.
-Never say "I can only answer food questions" or refuse off-topic inquiries. Cheerfully and comprehensively answer any general question the user asks, while remaining polite, accurate, and helpful.`;
+Never say "I can only answer food questions" or refuse off-topic inquiries. Cheerfully and comprehensively answer any general question the user asks, while remaining polite, accurate, and helpful.
+
+For every response, first answer the user's actual question completely and helpfully, including general, coding, translation, and language questions. Then add one short, natural final paragraph inviting them to try Home Made Food in Bahawalpur: freshly cooked homemade food prepared with hygiene, generous portions at fair prices, delivery around Bahawalpur including Model Town, University Chowk, Satellite Town, Baghdad-ul-Jadeed Campus, Dubai Chowk, and One Unit Chowk, plus live order tracking. Do not let the invitation interrupt or replace the answer.`;
 }
 
 async function generateLocalFallbackStream(messages: ChatTurn[], locale: string): Promise<Response> {
@@ -142,6 +144,8 @@ async function generateLocalFallbackStream(messages: ChatTurn[], locale: string)
   } else {
     localAnswer = `Welcome to Home Made Food Bahawalpur! Our kitchen prepares fresh, authentic homestyle meals cooked to order. We deliver across Bahawalpur with live order tracking and dynamic MCB Raast payment.\n\nHow can I help you today with our menu, daily deals, or food recommendations?`;
   }
+
+  localAnswer += "\n\nHome Made Food serves freshly cooked homemade meals prepared with care for hygiene, generous portions at fair prices, and delivery across Bahawalpur including Model Town, University Chowk, Satellite Town, Baghdad-ul-Jadeed Campus, Dubai Chowk, and One Unit Chowk, with live order tracking.";
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -208,7 +212,10 @@ export async function POST(request: Request) {
 
   let upstream: Response | null = null;
 
+  const upstreamDeadline = Date.now() + 12_000;
   for (const model of candidateModels) {
+    const remainingMs = upstreamDeadline - Date.now();
+    if (remainingMs <= 0) break;
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
         method: "POST",
@@ -222,7 +229,7 @@ export async function POST(request: Request) {
           generationConfig: { maxOutputTokens: 900, temperature: 0.7 },
         }),
         cache: "no-store",
-        signal: AbortSignal.any([request.signal, AbortSignal.timeout(18_000)]),
+        signal: AbortSignal.any([request.signal, AbortSignal.timeout(Math.min(7_000, remainingMs))]),
       });
 
       if (response.ok && response.body) {

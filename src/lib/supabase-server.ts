@@ -900,7 +900,7 @@ export async function insertSupabaseMessage(message: Omit<OrderMessage, "id" | "
 }
 
 export async function insertSupabaseNotification(input: {
-  type: "order_created" | "order_cancelled" | "chat_message" | "profile_updated" | "order_status" | "customer_note" | "payment_proof";
+  type: "order_created" | "order_cancelled" | "chat_message" | "profile_updated" | "order_status" | "customer_note" | "payment_proof" | "contact_request";
   title: string;
   body: string;
   orderNumber?: string;

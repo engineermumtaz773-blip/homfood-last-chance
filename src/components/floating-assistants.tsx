@@ -14,10 +14,10 @@ type AssistantCopy = { title: string; subtitle: string; welcome: string; placeho
 type GreetingPeriod = "morning" | "afternoon" | "evening" | "night";
 
 const copy: Record<Locale, AssistantCopy> = {
-  en: { title: "Kitchen assistant", subtitle: "Gemini AI · instant menu help", welcome: "Ask me about the menu, delivery, your order, or anything else.", placeholder: "Ask a question…", send: "Send message", today: "Today’s Specials", track: "Track Order", delivery: "Delivery Time", unavailable: "The AI assistant could not connect. Please try again shortly." },
-  ur: { title: "باورچی خانے کا معاون", subtitle: "جیمینائی اے آئی · مینو کی فوری معلومات", welcome: "مینو، ترسیل، آرڈر یا کسی بھی سوال کے بارے میں پوچھیں۔", placeholder: "اپنا سوال لکھیں…", send: "پیغام بھیجیں", today: "آج کی ڈیلز", track: "آرڈر ٹریک کریں", delivery: "ترسیل کا وقت", unavailable: "اے آئی معاون سے رابطہ نہیں ہو سکا۔ کچھ دیر بعد دوبارہ کوشش کریں۔" },
-  sd: { title: "باورچي خاني جو مددگار", subtitle: "جيمِنائي AI · مينيو جي فوري ڄاڻ", welcome: "مينيو، پهچائڻ، آرڊر يا ڪنهن به سوال بابت پڇو.", placeholder: "پنهنجو سوال لکو…", send: "پيغام موڪليو", today: "اڄ جون آڇون", track: "آرڊر ٽريڪ ڪريو", delivery: "پهچائڻ جو وقت", unavailable: "اي آءِ مددگار سان رابطو نه ٿي سگهيو. ٿوري دير کان پوءِ ٻيهر ڪوشش ڪريو." },
-  "ur-Latn": { title: "Kitchen Assistant", subtitle: "Gemini AI · menu ki foran maloomat", welcome: "Menu, delivery, order, ya kisi bhi sawal ke baare mein poochein.", placeholder: "Apna sawal likhein…", send: "Paigham bhejein", today: "Aaj Ki Deals", track: "Order Track Karein", delivery: "Delivery Time", unavailable: "AI assistant se rabta nahin ho saka. Thori dair baad dobara koshish karein." },
+  en: { title: "Home Made Food AI Assistant Menu Help", subtitle: "Live menu help and answers to your questions", welcome: "Ask me about the menu, delivery, your order, or anything else.", placeholder: "ask a question…", send: "Send message", today: "Today’s Specials", track: "Track Order", delivery: "Delivery Time", unavailable: "The AI assistant could not connect. Please try again shortly." },
+  ur: { title: "Home Made Food AI Assistant Menu Help", subtitle: "لائیو مینو مدد اور آپ کے سوالات کے جواب", welcome: "مینو، ترسیل، آرڈر یا کسی بھی سوال کے بارے میں پوچھیں۔", placeholder: "اپنا سوال لکھیں…", send: "پیغام بھیجیں", today: "آج کی ڈیلز", track: "آرڈر ٹریک کریں", delivery: "ترسیل کا وقت", unavailable: "اے آئی معاون سے رابطہ نہیں ہو سکا۔ کچھ دیر بعد دوبارہ کوشش کریں۔" },
+  sd: { title: "Home Made Food AI Assistant Menu Help", subtitle: "لائيو مينيو مدد ۽ توهان جي سوالن جا جواب", welcome: "مينيو، پهچائڻ، آرڊر يا ڪنهن به سوال بابت پڇو.", placeholder: "پنهنجو سوال لکو…", send: "پيغام موڪليو", today: "اڄ جون آڇون", track: "آرڊر ٽريڪ ڪريو", delivery: "پهچائڻ جو وقت", unavailable: "اي آءِ مددگار سان رابطو نه ٿي سگهيو. ٿوري دير کان پوءِ ٻيهر ڪوشش ڪريو." },
+  "ur-Latn": { title: "Home Made Food AI Assistant Menu Help", subtitle: "Live menu ki madad aur aap ke sawalon ke jawab", welcome: "Menu, delivery, order, ya kisi bhi sawal ke baare mein poochein.", placeholder: "Apna sawal likhein…", send: "Paigham bhejein", today: "Aaj Ki Deals", track: "Order Track Karein", delivery: "Delivery Time", unavailable: "AI assistant se rabta nahin ho saka. Thori dair baad dobara koshish karein." },
 };
 const greetingCopy: Record<Locale, Record<GreetingPeriod, string>> = {
   en: { morning: "Good morning", afternoon: "Good afternoon", evening: "Good evening", night: "Good night" },
@@ -25,34 +25,27 @@ const greetingCopy: Record<Locale, Record<GreetingPeriod, string>> = {
   sd: { morning: "صبح جو سلام", afternoon: "منجهند جو سلام", evening: "شام جو سلام", night: "رات جو سلام" },
   "ur-Latn": { morning: "Subah bakhair", afternoon: "Dopehar bakhair", evening: "Shaam bakhair", night: "Shab bakhair" },
 };
-const WA_CHAT_URL = `https://wa.me/923040537000?text=${encodeURIComponent("Hi Home Made Food, I have an inquiry.")}`;
-
 const waitBeforeRetry = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 async function fetchChatWithRetry(payload: { locale: Locale; messages: { role: string; text: string }[] }, signal: AbortSignal) {
   let lastError: unknown;
-  const endpoints = ["/api/chatbot", "/api/chat", "/api/gemini"];
-  for (const endpoint of endpoints) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (signal.aborted) throw new DOMException("Chat was reset.", "AbortError");
-      let response: Response;
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
-        });
-      } catch (error) {
-        if (signal.aborted) throw error;
-        lastError = error;
-        if (attempt === 0) { await waitBeforeRetry(350); continue; }
-        break;
-      }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (signal.aborted) throw new DOMException("Chat was reset.", "AbortError");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      });
       if (response.ok) return response;
       const retryable = response.status === 429 || response.status === 502 || response.status === 503 || response.status >= 500;
-      if (attempt === 0 && retryable) { await waitBeforeRetry(350); continue; }
-      break;
+      if (attempt === 0 && retryable) { await waitBeforeRetry(250); continue; }
+      throw new Error("Chat endpoint unavailable.");
+    } catch (error) {
+      if (signal.aborted) throw error;
+      lastError = error;
+      if (attempt === 0) { await waitBeforeRetry(250); continue; }
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Chat endpoint unavailable.");
@@ -60,10 +53,6 @@ async function fetchChatWithRetry(payload: { locale: Locale; messages: { role: s
 
 function localAssistantFallback() {
   return "I can’t reach the live assistant right now. Open the menu for current dishes and prices, or use order tracking to check an order.";
-}
-
-function WhatsAppIcon() {
-  return <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M16.02 3.2A12.67 12.67 0 0 0 5.1 22.3L3.4 28.5l6.36-1.67A12.67 12.67 0 1 0 16.02 3.2Zm0 22.99c-1.99 0-3.94-.54-5.64-1.56l-.4-.24-3.78.99 1.01-3.68-.26-.42a10.35 10.35 0 1 1 9.07 4.91Zm5.68-7.75c-.31-.16-1.84-.91-2.12-1.02-.29-.1-.5-.16-.7.16-.21.31-.81 1.02-.99 1.23-.18.21-.36.24-.67.08-.31-.16-1.3-.48-2.48-1.53-.91-.81-1.53-1.8-1.71-2.11-.18-.31-.02-.48.14-.64.14-.14.31-.36.46-.54.16-.18.21-.31.31-.52.1-.21.05-.39-.03-.55-.08-.16-.7-1.69-.96-2.31-.25-.6-.51-.52-.7-.53h-.6c-.21 0-.55.08-.83.39-.29.31-1.1 1.07-1.1 2.6s1.13 3.01 1.29 3.22c.16.21 2.22 3.39 5.38 4.75.75.32 1.34.51 1.8.65.76.24 1.45.2 1.99.12.61-.09 1.84-.75 2.1-1.48.26-.72.26-1.35.18-1.48-.08-.13-.29-.21-.6-.36Z"/></svg>;
 }
 
 function AssistantIcon() {
@@ -95,6 +84,16 @@ export function FloatingAssistants() {
     setMessages([]);
     setDraft("");
     setIsThinking(false);
+  }
+
+  function closeAssistant() {
+    startNewChat();
+    setOpen(false);
+  }
+
+  function toggleAssistant() {
+    if (open) closeAssistant();
+    else setOpen(true);
   }
 
   useEffect(() => {
@@ -159,6 +158,7 @@ export function FloatingAssistants() {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: reducedMotion || isThinking ? "auto" : "smooth" }); }, [messages, open, reducedMotion, isThinking]);
   const userName = customer?.name.trim() || customer?.email?.split("@")[0] || "";
+  const inputPlaceholder = `${userName || "Guest"}, ${text.placeholder}`;
   const userInitial = userName.trim().charAt(0).toUpperCase();
   const welcome = useMemo(() => {
     const greeting = greetingPeriod
@@ -220,10 +220,6 @@ export function FloatingAssistants() {
   }
 
   return <>
-    <motion.a className="floating-whatsapp" href={WA_CHAT_URL} target="_blank" rel="noreferrer" aria-label="Chat on WhatsApp" title="Chat on WhatsApp" whileHover={reducedMotion ? undefined : { scale: 1.09, rotate: 4 }} whileTap={reducedMotion ? undefined : { scale: .94 }}>
-      <span className="floating-whatsapp-pulse" aria-hidden="true" /><WhatsAppIcon /><span className="floating-whatsapp-tooltip">Chat on WhatsApp</span>
-    </motion.a>
-
     <AnimatePresence>
       {open && <motion.section className="knowledge-chat-window" role="dialog" aria-modal="false" aria-labelledby="knowledge-chat-title" initial={reducedMotion ? false : { opacity: 0, y: 20, scale: .96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={reducedMotion ? undefined : { opacity: 0, y: 16, scale: .97 }} transition={{ type: "spring", stiffness: 360, damping: 30 }}>
         <header className="knowledge-chat-header">
@@ -233,24 +229,24 @@ export function FloatingAssistants() {
               : userName ? <span aria-hidden="true">{userInitial}</span> : <AssistantIcon />}
           </span>
           <span className="knowledge-chat-heading">
-            <strong id="knowledge-chat-title">{text.title}{userName ? ` · ${userName}` : ""}</strong>
+          <strong id="knowledge-chat-title">{text.title}</strong>
             <small><i />{text.subtitle}</small>
             {customer?.email && <small className="knowledge-chat-email">{customer.email}</small>}
           </span>
           <button type="button" className="knowledge-chat-new" onClick={startNewChat}>New Chat</button>
-          <button type="button" className="knowledge-chat-close" onClick={() => setOpen(false)} aria-label="Close assistant">×</button>
+          <button type="button" className="knowledge-chat-close" onClick={closeAssistant} aria-label="Close assistant">×</button>
         </header>
         <div className="knowledge-chat-messages" role="log" aria-live="polite" aria-relevant="additions">
-          {visibleMessages.map((message) => <motion.div key={message.id} className={`knowledge-chat-message ${message.role}`} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .2 }}><span>{message.pending && !message.text ? <i className="assistant-typing-indicator" aria-label="Assistant is typing"><i /><i /><i /></i> : message.text}</span></motion.div>)}
+          {visibleMessages.map((message) => <motion.div key={message.id} className={`knowledge-chat-message ${message.role}`} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .2 }}><span>{message.pending && !message.text ? <span className="assistant-typing-indicator" aria-label="Assistant is thinking">{[0, 1, 2].map((dot) => <motion.i key={dot} animate={reducedMotion ? undefined : { opacity: [.35, 1, .35], y: [0, -4, 0] }} transition={{ duration: .85, repeat: Infinity, delay: dot * .14, ease: "easeInOut" }} />)}</span> : message.text}</span></motion.div>)}
           <div ref={endRef} />
         </div>
         <div className="knowledge-chat-suggestions" aria-label="Suggested questions"><button type="button" onClick={() => ask(text.today)}>{text.today}</button><button type="button" onClick={() => ask("Track order")}>{text.track}</button><button type="button" onClick={() => ask("Delivery time")}>{text.delivery}</button></div>
-        <form className="knowledge-chat-form" onSubmit={(event) => { event.preventDefault(); void ask(draft); }}><label className="sr-only" htmlFor="knowledge-question">{text.placeholder}</label><input id="knowledge-question" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={text.placeholder} disabled={isThinking} /><button type="submit" disabled={!draft.trim() || isThinking} aria-label={text.send}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13" /></svg></button></form>
+        <form className="knowledge-chat-form" onSubmit={(event) => { event.preventDefault(); void ask(draft); }}><label className="sr-only" htmlFor="knowledge-question">{inputPlaceholder}</label><input id="knowledge-question" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={inputPlaceholder} disabled={isThinking} /><button type="submit" disabled={!draft.trim() || isThinking} aria-label={text.send}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13" /></svg></button></form>
         <footer className="knowledge-chat-footer">{catalog.connected ? "Menu knowledge refreshes from the kitchen." : "Live menu connection unavailable. Refresh to retry."} <Link href="/track-order">Track order</Link></footer>
       </motion.section>}
     </AnimatePresence>
 
-    <motion.button className={`floating-assistant-trigger ${open ? "is-open" : ""}`} type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="knowledge-chat-title" aria-label={open ? "Close kitchen assistant" : "Open kitchen assistant"} title={text.title} whileHover={reducedMotion ? undefined : { scale: 1.08, rotate: -3 }} whileTap={reducedMotion ? undefined : { scale: .94 }}>
+    <motion.button className={`floating-assistant-trigger ${open ? "is-open" : ""}`} type="button" onClick={toggleAssistant} aria-expanded={open} aria-controls="knowledge-chat-title" aria-label={open ? "Close kitchen assistant" : "Open kitchen assistant"} title={text.title} whileHover={reducedMotion ? undefined : { scale: 1.08, rotate: -3 }} whileTap={reducedMotion ? undefined : { scale: .94 }}>
       {open ? <span className="assistant-close-icon" aria-hidden="true">×</span> : <AssistantIcon />}
       {!open && <span className="assistant-trigger-label">{text.title}</span>}
     </motion.button>

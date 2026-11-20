@@ -1,5 +1,8 @@
 import { WhatsAppForm } from "@/components/whatsapp-form";
 
+const visitAddress = "Goheer town, street no 2, university chowk, Bahawalpur, Pakistan";
+const visitMapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visitAddress)}`;
+
 export default function ContactPage() {
   return (
     <>
@@ -8,7 +11,7 @@ export default function ContactPage() {
         <div className="contact-grid">
           <a className="contact-card" href="tel:03096648932"><span className="contact-icon">⌕</span><h3>Call Us</h3><p>03096648932</p></a>
           <a className="contact-card" href="mailto:ch.arslan4367@gmail.com"><span className="contact-icon">✉</span><h3>Email Us</h3><p>ch.arslan4367@gmail.com</p></a>
-          <div className="contact-card"><span className="contact-icon">⌖</span><h3>Visit Us</h3><p>Goheer town, street no 2, university chowk, Bahawalpur, Pakistan</p></div>
+          <a className="contact-card" href={visitMapUrl} target="_blank" rel="noreferrer"><span className="contact-icon">⌖</span><h3>Visit Us</h3><p>{visitAddress}</p><span className="contact-map-link">Open Google Maps ↗</span></a>
         </div>
         <div style={{ marginTop: 40 }}><WhatsAppForm /></div>
       </section>

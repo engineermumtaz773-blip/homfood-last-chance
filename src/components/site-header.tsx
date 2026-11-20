@@ -8,7 +8,7 @@ import type { FormEvent } from "react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "framer-motion";
 import { useCart } from "@/components/cart-provider";
 import { AppInstallActions } from "@/components/app-install-actions";
 import { useSiteSettings, type Locale, type Theme } from "@/components/site-settings";
@@ -29,6 +29,12 @@ const footerLinks = [
   ["Contact", "/contact"],
 ] as const;
 const brandImage = "/image_6c70d8.jpg";
+
+function ScrollFillProgress() {
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, { stiffness: 120, damping: 28, restDelta: 0.001 });
+  return <motion.div className="scroll-fill-progress" style={{ scaleX }} aria-hidden="true" />;
+}
 
 export function SiteHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -131,7 +137,9 @@ export function SiteHeader() {
   }
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="site-header-stack">
+      <ScrollFillProgress />
       <div className="announcement-ticker" role="status" aria-label="Live store updates">
         <div className="announcement-track">
           <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
@@ -163,7 +171,7 @@ export function SiteHeader() {
             Explore <span aria-hidden="true">⌄</span>
           </button>
           <AnimatePresence>
-            {pagesOpen && <motion.nav id="header-pages-popover" className="header-pages-popover" aria-label="Footer navigation" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            {pagesOpen && <motion.nav id="header-pages-popover" className="header-pages-popover" aria-label="Footer navigation" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .15, ease: "easeOut" }}>
               {footerLinks.map(([label, href]) => <Link key={href} href={href} onClick={closeHeaderMenus}>{label}</Link>)}
             </motion.nav>}
           </AnimatePresence>
@@ -171,7 +179,7 @@ export function SiteHeader() {
         <div className="settings-menu" ref={settingsMenuRef}>
           <button type="button" className="settings-trigger" aria-expanded={settingsOpen} aria-controls="settings-popover" onClick={() => { setSettingsOpen((open) => !open); setPagesOpen(false); setProfileOpen(false); }}><span aria-hidden="true">⚙</span> Settings</button>
           <AnimatePresence>
-            {settingsOpen && <motion.div id="settings-popover" className="settings-popover" initial={{ opacity: 0, y: -8, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: .98 }}>
+            {settingsOpen && <motion.div id="settings-popover" className="settings-popover" initial={{ opacity: 0, y: -5, scale: .99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: .99 }} transition={{ duration: .15, ease: "easeOut" }}>
               <strong>Preferences</strong>
               <label><span>{t("language")}</span><select aria-label={t("language")} value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>{Object.entries(localeNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
               <label><span>{t("theme")}</span><select aria-label={t("theme")} value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>{Object.entries(themeNames).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
@@ -270,5 +278,6 @@ export function SiteHeader() {
         </motion.div>, document.body) : null}
     </header>
     </div>
+    </MotionConfig>
   );
 }
