@@ -37,7 +37,8 @@ export async function getDishes(): Promise<Dish[]> {
 
 export async function getDishesSafely(): Promise<Dish[] | null> {
   try {
-    return await getDishes();
+    const dishes = await getDishes();
+    return dishes.length ? dishes : getFallbackDishes();
   } catch (error) {
     console.error("[MENU_DATA_UNAVAILABLE]", error);
     return getFallbackDishes();

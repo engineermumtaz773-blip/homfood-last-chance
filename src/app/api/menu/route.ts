@@ -25,11 +25,18 @@ export async function GET(request: NextRequest) {
   const category = new URL(request.url).searchParams.get("category") || undefined;
   try {
     assertSupabaseConfigured();
-    const dishes = await getSupabaseDishes(category);
+    const liveDishes = await getSupabaseDishes(category);
+    const dishes = liveDishes.length > 0 ? liveDishes : (() => {
+      const fallback = getFallbackDishes();
+      return category && category.toLocaleLowerCase() !== "all"
+        ? fallback.filter((dish) => [dish.category, ...(dish.categories || [])].some((name) => name.toLocaleLowerCase() === category.toLocaleLowerCase()))
+        : fallback;
+    })();
+    const source = liveDishes.length > 0 ? "supabase" : "local-fallback";
     const categories = [...new Set(dishes.flatMap((dish) => [dish.category, ...(dish.categories || [])]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return NextResponse.json(
-      { dishes, categories, source: "supabase" },
-      { headers: { "Cache-Control": "no-store, max-age=0", "X-Data-Source": "supabase" } }
+      { dishes, categories, source },
+      { headers: { "Cache-Control": "no-store, max-age=0", "X-Data-Source": source } }
     );
   } catch (error) {
     console.error("Failed to load menu database:", error);

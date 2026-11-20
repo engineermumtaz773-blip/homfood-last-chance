@@ -18,7 +18,8 @@ async function loadStoreContext(): Promise<StoreContext> {
     getSupabaseDeals(),
     getSupabaseSettings(),
   ]);
-  const dishes = dishResult.status === "fulfilled" ? dishResult.value : getFallbackDishes();
+  const liveDishes = dishResult.status === "fulfilled" ? dishResult.value : [];
+  const dishes = liveDishes.length ? liveDishes : getFallbackDishes();
   const deals = dealResult.status === "fulfilled" ? dealResult.value : [];
   const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
   return { dishes, deals, settings };
