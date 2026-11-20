@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -24,8 +25,9 @@ const paymentMethod = "Digital Payment";
 const money = new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 });
 
 export function CheckoutForm() {
+  const router = useRouter();
   const { t } = useSiteSettings();
-  const { items, removeItem, updateQuantity } = useCart();
+  const { items, removeItem, updateQuantity, clearCart } = useCart();
   const kitchen = useKitchenAvailability();
   const [submitError, setSubmitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -339,7 +341,9 @@ export function CheckoutForm() {
       expiresAt,
       whatsappMessage: message,
     });
+    clearCart();
     setIsSubmitting(false);
+    router.push(`/order-confirmation?order=${encodeURIComponent(orderNumber)}&phone=${encodeURIComponent(phone)}`);
   }
 
   if (!items.length && !raastSession) return <div className="notice">{t("emptyCart")} <Link href="/menu" style={{ textDecoration: "underline" }}>{t("browseMenu")}</Link></div>;
@@ -395,7 +399,8 @@ export function CheckoutForm() {
           <label className="field full">Delivery timing<select name="deliveryTime" defaultValue="As soon as possible"><option>As soon as possible</option><option>Today · 12:00–2:00 PM</option><option>Today · 2:00–5:00 PM</option><option>Today · 6:00–9:00 PM</option></select></label>
         </div>
         {submitError && <p className="form-error" role="alert">{submitError}</p>}
-        <button className="add-button checkout-submit-button" type="submit" disabled={isSubmitting || !kitchen || kitchen.available === false} aria-describedby={kitchen?.available === false ? "checkout-kitchen-status" : undefined}>{isSubmitting ? "Placing order…" : kitchen?.available === false ? "Ordering paused" : "Confirm & Place Order"} <span aria-hidden="true">→</span></button>
+        <button className="add-button checkout-submit-button" type="submit" disabled={isSubmitting || kitchen?.available === false} aria-describedby={kitchen?.available === false ? "checkout-kitchen-status" : undefined}>{isSubmitting ? "Placing order…" : kitchen?.available === false ? "Ordering paused" : "Confirm & Place Order"} <span aria-hidden="true">→</span></button>
+        {kitchen === null && <small className="checkout-kitchen-checking" role="status">Kitchen hours could not be refreshed. The order service will validate availability when you submit.</small>}
         <p style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.6 }}>After your order is saved, a dynamic Raast QR will be shown. Payment is confirmed by the merchant after you upload your receipt.</p>
       </motion.form>
       )}

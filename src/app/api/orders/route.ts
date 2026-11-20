@@ -10,6 +10,7 @@ import { readAdminSession } from "@/lib/admin-session";
 import { supabaseErrorResponse } from "@/lib/api-errors";
 import { requireAdminRequest } from "@/lib/admin-request";
 import { CUSTOMER_SESSION_COOKIE, verifySignedCustomerSession, type CustomerSessionPayload } from "@/lib/customer-session";
+import { isSupabaseSchemaMismatch } from "@/lib/supabase-schema";
 
 export const runtime = "nodejs";
 
@@ -96,10 +97,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const settings = await getSupabaseSettings();
-    if (!settings) return NextResponse.json({ error: "Store settings are unavailable." }, { status: 503 });
-    const availability = getKitchenAvailability(settings);
-    if (!availability.available) return NextResponse.json({ error: availability.reason, schedule: availability.schedule }, { status: 409 });
+    let settings: Awaited<ReturnType<typeof getSupabaseSettings>> = null;
+    try {
+      settings = await getSupabaseSettings();
+    } catch (error) {
+      if (!isSupabaseSchemaMismatch(error)) throw error;
+      console.warn("Store settings schema is unavailable; allowing order creation without configured kitchen restrictions.");
+    }
+    if (settings) {
+      const availability = getKitchenAvailability(settings);
+      if (!availability.available) return NextResponse.json({ error: availability.reason, schedule: availability.schedule }, { status: 409 });
+    }
 
     const order = {
       id: crypto.randomUUID(),

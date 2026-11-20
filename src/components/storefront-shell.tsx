@@ -20,7 +20,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   const [accessDeniedToast, setAccessDeniedToast] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [mounted, setMounted] = useState<boolean>(false);
-  const [viewMode, setViewMode] = useState<"auto" | "web" | "app">("auto");
+  const [viewMode, setViewMode] = useState<"auto" | "web" | "app" | "mobile-app" | "desktop-app">("auto");
   const [desktopStandalone, setDesktopStandalone] = useState(false);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     const restorePreferences = () => {
       try {
         const saved = localStorage.getItem("hmf_view_mode");
-        setViewMode(saved === "app" || saved === "web" || saved === "auto" ? saved : "auto");
+        setViewMode(saved === "mobile-app" || saved === "desktop-app" || saved === "app" || saved === "web" || saved === "auto" ? saved : "auto");
       } catch (error) {
         console.warn("Could not restore the saved view preference.", error);
       }
@@ -47,8 +47,8 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
       setMounted(true);
     };
     const modeHandler = (event: Event) => {
-      const selected = (event as CustomEvent<"auto" | "web" | "app">).detail;
-      if (selected === "app" || selected === "web" || selected === "auto") {
+      const selected = (event as CustomEvent<"auto" | "web" | "app" | "mobile-app" | "desktop-app">).detail;
+      if (selected === "app" || selected === "web" || selected === "auto" || selected === "mobile-app" || selected === "desktop-app") {
         setViewMode(selected);
         try {
           window.localStorage.setItem("hmf_view_mode", selected);
@@ -99,8 +99,9 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     return <main className="admin-root-viewport">{children}</main>;
   }
 
-  const isDesktopApp = !isMobile && (viewMode === "app" || (viewMode === "auto" && desktopStandalone));
+  const isDesktopApp = !isMobile && (viewMode === "desktop-app" || viewMode === "app" || (viewMode === "auto" && desktopStandalone));
   const isDesktopAppHome = isDesktopApp && pathname === "/";
+  const isMobileAppHome = viewMode === "mobile-app" && pathname === "/" && !isMobile;
   const isMobileHome = isMobile && (pathname === "/" || isMobileRoute);
 
   return (
@@ -189,17 +190,18 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
         </MobileAppShell>
       ) : (
         <>
-          {!isDesktopAppHome && <SiteHeader />}
+          {isMobileAppHome && <button type="button" className="app-view-return" onClick={() => window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: "web" }))}>← Website View</button>}
+          {!isDesktopAppHome && !isMobileAppHome && <SiteHeader />}
           <main
-            className={isDesktopAppHome ? "desktop-app-shell" : undefined}
-            role={isDesktopAppHome ? "none" : undefined}
+            className={isDesktopAppHome ? "desktop-app-shell" : isMobileAppHome ? "mobile-app-shell" : undefined}
+            role={isDesktopAppHome || isMobileAppHome ? "none" : undefined}
           >
             {children}
           </main>
-          {!isDesktopAppHome && <SiteFooter />}
+          {!isDesktopAppHome && !isMobileAppHome && <SiteFooter />}
           <MobileCartDrawer />
           <FloatingAssistants />
-          {!isDesktopAppHome && <NewVisitorAuthPrompt />}
+          {!isDesktopAppHome && !isMobileAppHome && <NewVisitorAuthPrompt />}
         </>
       )}
     </>

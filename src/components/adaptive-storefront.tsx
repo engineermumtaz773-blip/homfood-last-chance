@@ -8,7 +8,7 @@ import { DesktopPosLayout } from "@/components/desktop-pos-layout";
 import type { Dish } from "@/lib/data";
 
 export const VIEW_MODE_CHANGE_EVENT = "hmf_view_mode_changed";
-type ViewMode = "auto" | "web" | "app";
+type ViewMode = "auto" | "web" | "app" | "mobile-app" | "desktop-app";
 
 export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
   const [mode, setMode] = useState<ViewMode>("web");
@@ -26,7 +26,7 @@ export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
     const restoreMode = () => {
       try {
         const saved = localStorage.getItem("hmf_view_mode");
-        setMode(saved === "app" || saved === "web" || saved === "auto" ? saved : "auto");
+        setMode(saved === "mobile-app" || saved === "desktop-app" || saved === "app" || saved === "web" || saved === "auto" ? saved : "auto");
       } catch (error) {
         console.warn("Could not restore the saved view preference.", error);
         setMode("auto");
@@ -38,7 +38,7 @@ export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
     const restoreTimer = window.setTimeout(restoreMode, 0);
     const onModeChange = (event: Event) => {
       const selected = (event as CustomEvent<ViewMode>).detail;
-      if (selected !== "app" && selected !== "web" && selected !== "auto") return;
+      if (selected !== "app" && selected !== "web" && selected !== "auto" && selected !== "mobile-app" && selected !== "desktop-app") return;
       setMode(selected);
       try {
         localStorage.setItem("hmf_view_mode", selected);
@@ -57,9 +57,8 @@ export function AdaptiveStorefront({ dishes }: { dishes: Dish[] }) {
     };
   }, []);
 
-  const appMode = mode === "app" || (mode === "auto" && isStandalone);
-  const renderMobileApp = isMobile || (appMode && isMobile);
-  const renderDesktopApp = !isMobile && appMode;
+  const renderMobileApp = mode === "mobile-app" || ((mode === "auto" || mode === "app") && isMobile);
+  const renderDesktopApp = mode === "desktop-app" || ((mode === "auto" || mode === "app") && !isMobile && isStandalone);
   const transition = { duration: 0.28, ease: [0.22, 1, 0.36, 1] as const };
 
   return (

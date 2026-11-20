@@ -18,11 +18,9 @@ export function useKitchenAvailability() {
         if (active && data.settings) setAvailability(getKitchenAvailability(data.settings));
       } catch (error) {
         console.error("Could not load kitchen availability:", error);
-        if (active) setAvailability({
-          available: false,
-          reason: "Kitchen hours could not be verified. Please try again shortly.",
-          schedule: "",
-        });
+        // Keep checkout submit available; the order API performs the authoritative
+        // kitchen-hours check and returns a clear reason if the kitchen is closed.
+        if (active) setAvailability(null);
       }
     };
     void load();

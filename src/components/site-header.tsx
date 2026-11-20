@@ -7,7 +7,7 @@ import type { Dish } from "@/lib/data";
 import type { FormEvent } from "react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "framer-motion";
 import { useCart } from "@/components/cart-provider";
 import { AppInstallActions } from "@/components/app-install-actions";
@@ -44,12 +44,15 @@ export function SiteHeader() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pagesOpen, setPagesOpen] = useState(false);
+  const [appViewOpen, setAppViewOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [currency, setCurrency] = useState("PKR");
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const pagesMenuRef = useRef<HTMLDivElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const appViewMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const pathname = usePathname();
   const { items } = useCart();
   const { t, locale, theme, setLocale, setTheme, localeNames, themeNames } = useSiteSettings();
   const count = items.reduce((total, item) => total + item.quantity, 0);
@@ -61,6 +64,7 @@ export function SiteHeader() {
     setPagesOpen(false);
     setProfileOpen(false);
     setMenuOpen(false);
+    setAppViewOpen(false);
   }, []);
 
   useEffect(() => {
@@ -80,12 +84,13 @@ export function SiteHeader() {
     };
   }, []);
   useEffect(() => {
-    if (!settingsOpen && !pagesOpen && !profileOpen && !menuOpen) return;
+    if (!settingsOpen && !pagesOpen && !profileOpen && !menuOpen && !appViewOpen) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
       if (!settingsMenuRef.current?.contains(event.target)) setSettingsOpen(false);
       if (!pagesMenuRef.current?.contains(event.target)) setPagesOpen(false);
       if (!profileMenuRef.current?.contains(event.target)) setProfileOpen(false);
+      if (!appViewMenuRef.current?.contains(event.target)) setAppViewOpen(false);
       const target = event.target instanceof Element ? event.target : event.target.parentElement;
       if (!target?.closest(".site-header nav") && !target?.closest(".menu-toggle")) {
         setMenuOpen(false);
@@ -100,7 +105,7 @@ export function SiteHeader() {
       document.removeEventListener("pointerdown", closeOnOutsideClick);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [settingsOpen, pagesOpen, profileOpen, menuOpen, closeHeaderMenus]);
+  }, [settingsOpen, pagesOpen, profileOpen, menuOpen, appViewOpen, closeHeaderMenus]);
   useEffect(() => {
     fetch("/api/menu", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data: { dishes?: Dish[] } | null) => {
       if (data?.dishes) setSearchDishes(data.dishes);
@@ -141,10 +146,14 @@ export function SiteHeader() {
     <div className="site-header-stack">
       <ScrollFillProgress />
       <div className="announcement-ticker" role="status" aria-label="Live store updates">
-        <div className="announcement-track">
-          <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
-          <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
-        </div>
+        <motion.div className="announcement-track" animate={{ x: "-50%" }} transition={{ duration: 30, ease: "linear", repeat: Infinity, repeatType: "loop" }}>
+          <div className="announcement-group">
+            <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
+          </div>
+          <div className="announcement-group" aria-hidden="true">
+            <span>● Freshly cooked in Bahawalpur</span><span>Free delivery on orders above PKR 1,500</span><span>Open daily for homemade meals · Live order tracking available</span>
+          </div>
+        </motion.div>
       </div>
     <header className="site-header">
       <button className="menu-toggle" aria-label="Toggle menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>☰</button>
@@ -188,31 +197,21 @@ export function SiteHeader() {
             </motion.div>}
           </AnimatePresence>
         </div>
-        <motion.button
-          type="button"
-          className="app-view-toggle"
-          whileTap={{ scale: 0.97 }}
-          onClick={() => {
-            window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: "app" }));
-          }}
-          style={{
-            padding: "6px 12px",
-            borderRadius: "9999px",
-            background: "#ecfdf5",
-            border: "1px solid #a7f3d0",
-            color: "#059669",
-            fontSize: "12px",
-            fontWeight: 700,
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "5px",
-          }}
-          title="Switch to PWA Dedicated App View"
-        >
-          <span>📱</span>
-          <span>App View</span>
-        </motion.button>
+        <div className="app-view-menu" ref={appViewMenuRef}>
+          <motion.button type="button" className="app-view-toggle" whileTap={{ scale: 0.97 }} aria-expanded={appViewOpen} aria-controls="app-view-popover" onClick={() => { setAppViewOpen((open) => !open); setSettingsOpen(false); setPagesOpen(false); setProfileOpen(false); }}>
+            <span aria-hidden="true">▣</span><span>App View</span><span aria-hidden="true">⌄</span>
+          </motion.button>
+          <AnimatePresence>
+            {appViewOpen && <motion.div id="app-view-popover" className="app-view-popover" role="menu" aria-label="Choose app view" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .15, ease: "easeOut" }}>
+              <strong>Choose your view</strong>
+              {([ ["mobile-app", "Mobile App View", "▯"], ["desktop-app", "Desktop App View", "▣"], ["web", "Website View", "⌂"] ] as const).map(([mode, label, icon]) => <button type="button" role="menuitem" key={mode} onClick={() => {
+                window.dispatchEvent(new CustomEvent("hmf_view_mode_changed", { detail: mode }));
+                setAppViewOpen(false);
+                if (pathname !== "/") router.push("/");
+              }}><span aria-hidden="true">{icon}</span>{label}</button>)}
+            </motion.div>}
+          </AnimatePresence>
+        </div>
         <AppInstallActions variant="compact" />
       </nav>
       <div className="profile-menu" ref={profileMenuRef}>
