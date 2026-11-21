@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useCart } from "@/components/cart-provider";
 import { motion, useReducedMotion } from "framer-motion";
+import { useSiteSettings } from "@/components/site-settings";
 
 export function DealCard({
   id,
@@ -22,6 +23,7 @@ export function DealCard({
   revealIndex?: number;
 }) {
   const { addItem } = useCart();
+  const { t, formatCurrency } = useSiteSettings();
   const reducedMotion = useReducedMotion();
   const [justAdded, setJustAdded] = useState(false);
 
@@ -48,12 +50,7 @@ export function DealCard({
               transition: { type: "spring", stiffness: 280, damping: 20 },
             }
       }
-      style={{
-        transformStyle: "preserve-3d",
-        perspective: 1000,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
-        transition: "box-shadow 0.2s ease",
-      }}
+      style={{ transformStyle: "preserve-3d", perspective: 1000 }}
     >
       <div
         className="dish-image"
@@ -72,21 +69,13 @@ export function DealCard({
         {imageUrl ? null : "🍱"}
       </div>
       <div className="dish-info">
-        <span
-          className="deal-badge"
-          style={{
-            background: "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)",
-            color: "#ffffff",
-            fontWeight: 800,
-            boxShadow: "0 4px 12px rgba(234, 88, 12, 0.3)",
-          }}
-        >
-          Save Rs. {original - price}
+        <span className="deal-badge">
+          {t("save")} {formatCurrency(original - price)}
         </span>
         <div className="dish-title-row" style={{ marginTop: 14 }}>
           <h3>{title}</h3>
-          <span className="dish-price" style={{ color: "#059669", fontWeight: 800 }}>
-            Rs. {price.toLocaleString()}
+          <span className="dish-price">
+            {formatCurrency(price)}
           </span>
         </div>
         <p className="dish-description">{description}</p>
@@ -98,26 +87,15 @@ export function DealCard({
             margin: "4px 0 12px 0",
           }}
         >
-          Regularly Rs. {original.toLocaleString()}
+          {t("regularly")} {formatCurrency(original)}
         </p>
         <motion.button
           type="button"
           className="add-button"
           whileTap={reducedMotion ? undefined : { scale: 0.95 }}
           onClick={handleAdd}
-          style={{
-            background: justAdded
-              ? "#10b981"
-              : "linear-gradient(135deg, #059669 0%, #047857 100%)",
-            color: "#ffffff",
-            fontWeight: 800,
-            boxShadow: justAdded
-              ? "0 4px 14px rgba(16, 185, 129, 0.4)"
-              : "0 4px 14px rgba(5, 150, 105, 0.28)",
-            transition: "all 0.2s ease",
-          }}
         >
-          {justAdded ? "✓ Added to cart" : "+ Add deal to cart"}
+          {justAdded ? `✓ ${t("addedToCart")}` : `+ ${t("addDealToCart")}`}
         </motion.button>
       </div>
     </motion.article>

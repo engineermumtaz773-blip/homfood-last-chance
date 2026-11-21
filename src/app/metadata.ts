@@ -6,6 +6,7 @@ export const defaultMetadata = {
     description: SITE_DESCRIPTION,
   }),
   metadataBase: new URL(getSiteUrl()),
+  alternates: { canonical: getSiteUrl() },
   title: {
     default: `${SITE_NAME} | Fresh Homemade Food in Bahawalpur`,
     template: `%s | ${SITE_NAME}`,

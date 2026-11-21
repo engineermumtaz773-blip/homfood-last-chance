@@ -101,6 +101,10 @@ function mapDish(row: SupabaseRow): Dish {
     servingSize: stringValue(row, "servingSize", "serving_size"),
     dietaryTags: Array.isArray(value(row, "dietaryTags", "dietary_tags")) ? value(row, "dietaryTags", "dietary_tags") as string[] : [],
     allergens: Array.isArray(value(row, "allergens")) ? value(row, "allergens") as string[] : [],
+    ingredients: Array.isArray(value(row, "ingredients"))
+      ? (value(row, "ingredients") as unknown[]).filter((item): item is string => typeof item === "string")
+      : [],
+    preparation: stringValue(row, "preparation", "how_its_made") || "",
     nutrition,
     dailyStockLimit: numberValue(row, "dailyStockLimit", "daily_stock_limit") ?? null,
     remainingStock: numberValue(row, "remainingStock", "remaining_stock") ?? null,
@@ -480,6 +484,8 @@ export async function upsertSupabaseDish(dish: Partial<Dish> & { name: string; c
     ...(dish.nutrition?.carbsGrams !== undefined ? { carbs_g: dish.nutrition.carbsGrams } : {}),
     ...(dish.nutrition?.fatGrams !== undefined ? { fat_g: dish.nutrition.fatGrams } : {}),
     ...(dish.allergens !== undefined ? { allergens: dish.allergens } : {}),
+    ...(dish.ingredients !== undefined ? { ingredients: dish.ingredients } : {}),
+    ...(dish.preparation !== undefined ? { preparation: dish.preparation } : {}),
     ...(dish.addons !== undefined ? { addons_json: dish.addons } : {}),
     updated_at: new Date().toISOString(),
   };

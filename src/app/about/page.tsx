@@ -1,3 +1,12 @@
+import type { Metadata } from "next";
+import { buildPageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: "About Home Made Food",
+  description: "Learn about our fresh, thoughtful homemade cooking and Bahawalpur kitchen.",
+  path: "/about",
+});
+
 export default function AboutPage() {
   return (
     <>

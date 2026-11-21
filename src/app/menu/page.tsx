@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import { LoadingScreen } from "@/components/loading-screen";
-import { AdaptiveStorefront } from "@/components/adaptive-storefront";
 import { MenuUnavailable } from "@/components/menu-unavailable";
 import { getDishesSafely } from "@/lib/data";
 import { MenuVoiceControls } from "@/components/menu-voice-controls";
@@ -24,7 +23,6 @@ async function MenuContent() {
     <JsonLd data={faqData} />
     <JsonLd data={breadcrumbStructuredData([{ name: "Home", path: "/" }, { name: "Menu", path: "/menu" }])} />
     <MenuVoiceControls dishes={menu} />
-    <AdaptiveStorefront dishes={menu} />
   </>;
 }
 

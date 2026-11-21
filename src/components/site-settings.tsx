@@ -4,6 +4,9 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type Locale = "en" | "ur" | "sd" | "ur-Latn";
 export type Theme = "light" | "dark" | "pink" | "emerald" | "sunset";
+export type Currency = "PKR" | "USD" | "AED";
+const pkrPerUnit: Record<Currency, number> = { PKR: 1, USD: 280, AED: 76 };
+const currencyLocales: Record<Locale, string> = { en: "en-PK", ur: "ur-PK", sd: "sd-PK", "ur-Latn": "en-PK" };
 const localeNames: Record<Locale, string> = { en: "English", ur: "اردو", sd: "سنڌي", "ur-Latn": "Roman Urdu" };
 const themeNames: Record<Theme, string> = { light: "Light", dark: "Dark", pink: "Signature Pink", emerald: "Emerald Kitchen", sunset: "Sunset Amber" };
 const rtlLocales = new Set<Locale>(["ur", "sd"]);
@@ -137,29 +140,337 @@ const paymentTranslations: Record<Locale, Record<string, string>> = {
 };
 for (const locale of Object.keys(paymentTranslations) as Locale[]) Object.assign(translations[locale], paymentTranslations[locale]);
 
-type SettingsValue = { locale: Locale; theme: Theme; setLocale: (locale: Locale) => void; setTheme: (theme: Theme) => void; t: (key: string) => string; localeNames: Record<Locale, string>; themeNames: Record<Theme, string> };
+const storefrontTranslations: Record<Locale, Record<string, string>> = {
+  en: {
+    settings: "Settings", preferences: "Preferences", currency: "Currency", soundEffects: "Sound effects",
+    notifications: "Notifications", orderUpdates: "Order updates", deliveryUpdates: "Delivery updates",
+    paymentUpdates: "Payment updates", promotions: "Daily deals", menuUpdates: "Menu updates",
+    notificationPermission: "Allow browser notifications to receive the updates you enable.",
+    notificationsUnavailable: "Browser notifications are unavailable or permission was not granted.",
+    searchUnavailable: "Menu search is temporarily unavailable.", searchingFor: "Searching for",
+    searchLoading: "Loading menu…", proceedCheckout: "Proceed to checkout", continueBrowsing: "Continue browsing",
+    displayRateNote: "Display amounts are approximate. Orders are charged in PKR.",
+    voiceSearch: "Voice search", voiceOrder: "Order by voice", voiceListening: "Listening…",
+    voiceUnsupported: "Voice input is not supported in this browser.", microphonePermission: "Allow microphone access to use voice input.",
+    voiceFailed: "Voice input could not start. Please try again.", searchReady: "Search for a dish by voice.",
+    voiceOrderTitle: "Hands-free ordering", voiceOrderDescription: "Say a dish name and quantity in English, Urdu, or Sindhi.",
+    voiceOrderPrompt: "Say “add” and a dish name, or say “checkout” to review your order.",
+    voiceOrderAdded: "Added to your cart.", voiceOrderNoMatch: "No matching dish was found. Please try another name.",
+    voiceOrderEmpty: "Add a dish before going to checkout.", goToCheckout: "Review cart & checkout",
+    dishDetails: "Dish details", dishQr: "Dish QR", scanDishQr: "Scan for full dish details",
+    ingredients: "Ingredients", preparation: "How it is prepared", recipeUnavailable: "Preparation details are not available yet.",
+    ingredientsUnavailable: "Ingredient details are not available yet.",
+    addToCart: "Add to cart", addToCartAndCheckout: "Add to cart & checkout",
+    home: "Home", mealPlans: "Meal plans", reservations: "Reservations", helpFaq: "Help & FAQ",
+    yourProfile: "Your profile", about: "About", contact: "Contact", explore: "Explore",
+    appView: "App view", chooseView: "Choose your view", mobileAppView: "Mobile app view",
+    desktopAppView: "Desktop app view", websiteView: "Website view", signInRegister: "Sign in / Register",
+    signIn: "Sign in", welcomeBack: "Welcome back", orderHistory: "Order history", verified: "Verified",
+    menuUpdatedNotification: "The menu has been updated. See the latest dishes.",
+    dealsUpdatedNotification: "New deals are available. Explore today's offers.",
+    orderStatusNotification: "Your order status has changed.",
+    paymentStatusNotification: "There is an update to your order payment.",
+    receiptUploadedNotification: "Your payment receipt was uploaded.",
+    openMenu: "Open menu", freshCookedIn: "Freshly cooked in Bahawalpur",
+    freeDeliveryAbove: "Free delivery on orders above", openDailyTrack: "Open daily for homemade meals · Live order tracking available",
+    shareDish: "Share dish", linkCopied: "Link copied", close: "Close",
+    savedCart: "Your saved cart", cartWaiting: "Your items are waiting", item: "item", items: "items",
+    resumeCheckout: "Resume checkout", dismissCartReminder: "Dismiss reminder", suggestedDishes: "You may also like",
+    completeMeal: "Complete your meal", from: "From", save: "Save", regularly: "Regularly",
+    addedToCart: "Added to cart", addDealToCart: "Add deal to cart",
+    menuUnavailableTitle: "Menu temporarily unavailable",
+    menuUnavailableDescription: "We couldn’t load the menu just now. Please try again.",
+    tryAgain: "Try again", recentlyViewed: "Recently viewed",
+    reservationSuccess: "Your reservation request was sent. We will confirm by phone.",
+    reservationTitle: "Request a table", reservationName: "Your name", reservationPhone: "Phone",
+    reservationGuests: "Guests", reservationDateTime: "Date and time", reservationNotes: "Notes",
+    reservationNotesPlaceholder: "Accessibility needs or special requests (optional)",
+    reservationSaving: "Submitting…", reservationSubmit: "Request reservation",
+    subscriptionSignInReason: "Sign in to save your meal subscription.",
+    subscriptionSignInRequired: "Sign in with a verified account to subscribe.",
+    subscriptionSuccess: "Your meal plan request is saved. The kitchen will confirm availability.",
+    subscriptionTitle: "Choose your plan", subscriptionBillingCycle: "Billing cycle",
+    weekly: "Weekly", monthly: "Monthly", subscriptionMeal: "Meal",
+    subscriptionStartDate: "Start date", subscriptionEndDate: "End date (optional)",
+    subscriptionDays: "Delivery days", subscriptionSaving: "Saving…", subscriptionSubmit: "Request meal plan",
+    helpEyebrow: "HELP CENTER", helpTitle: "Frequently asked questions",
+    menuSearchResults: "Matching dishes", noSearchResults: "No dishes match your search.",
+    delivery: "Delivery", discount: "Discount", total: "Total", free: "Free",
+    ratingUnavailable: "No rating yet", estimatedTime: "Est. 25–35 min", kitchenClosed: "Kitchen closed",
+    shareError: "Could not share this dish.", shareUnavailable: "Sharing is unavailable in this browser.",
+    viewPhoto: "View", imageUnavailable: "image unavailable", madeFreshToOrder: "MADE FRESH TO ORDER",
+    optionalAddOns: "Optional add-ons", spiceLevel: "Spice level", mild: "Mild", medium: "Medium", hot: "Hot",
+    allergens: "Allergens", nutritionPerServing: "Nutrition per serving", protein: "Protein", carbs: "Carbs", fat: "Fat",
+    kitchenPreferences: "Any preferences for the kitchen? (optional)", decreaseQuantity: "Decrease quantity",
+    increaseQuantity: "Increase quantity", extraChutney: "Extra chutney", freshSalad: "Fresh salad", raita: "Raita",
+  },
+  ur: {
+    settings: "ترتیبات", preferences: "ترجیحات", currency: "کرنسی", soundEffects: "آواز کے اثرات",
+    notifications: "اطلاعات", orderUpdates: "آرڈر کی تازہ خبریں", deliveryUpdates: "ترسیل کی تازہ خبریں",
+    paymentUpdates: "ادائیگی کی تازہ خبریں", promotions: "روزانہ کی ڈیلز", menuUpdates: "مینو کی تازہ خبریں",
+    notificationPermission: "منتخب کردہ تازہ خبروں کے لیے براؤزر کی اطلاعات کی اجازت دیں۔",
+    notificationsUnavailable: "براؤزر کی اطلاعات دستیاب نہیں یا اجازت نہیں ملی۔",
+    searchUnavailable: "مینو کی تلاش عارضی طور پر دستیاب نہیں۔", searchingFor: "تلاش جاری ہے:",
+    searchLoading: "مینو لوڈ ہو رہا ہے…", proceedCheckout: "چیک آؤٹ جاری رکھیں", continueBrowsing: "مینو دیکھتے رہیں",
+    displayRateNote: "رقم کی تبدیلی اندازاً ہے۔ آرڈر کی ادائیگی پاکستانی روپے میں ہوگی۔",
+    voiceSearch: "آواز سے تلاش", voiceOrder: "آواز سے آرڈر", voiceListening: "سن رہا ہے…",
+    voiceUnsupported: "اس براؤزر میں آواز کی سہولت دستیاب نہیں۔", microphonePermission: "آواز استعمال کرنے کے لیے مائیکروفون کی اجازت دیں۔",
+    voiceFailed: "آواز شروع نہیں ہو سکی۔ دوبارہ کوشش کریں۔", searchReady: "آواز سے کھانا تلاش کریں۔",
+    voiceOrderTitle: "آواز سے آرڈر", voiceOrderDescription: "اردو، سندھی یا انگریزی میں کھانے کا نام اور تعداد کہیں۔",
+    voiceOrderPrompt: "کھانے کا نام بتائیں یا آرڈر دیکھنے کے لیے چیک آؤٹ کہیں۔",
+    voiceOrderAdded: "آپ کی ٹوکری میں شامل کر دیا گیا۔", voiceOrderNoMatch: "یہ کھانا نہیں ملا۔ دوسرا نام بتائیں۔",
+    voiceOrderEmpty: "چیک آؤٹ سے پہلے کھانا شامل کریں۔", goToCheckout: "ٹوکری دیکھیں اور چیک آؤٹ کریں",
+    dishDetails: "کھانے کی تفصیل", dishQr: "کھانے کا کیو آر", scanDishQr: "مکمل تفصیل کے لیے اسکین کریں",
+    ingredients: "اجزاء", preparation: "تیاری کا طریقہ", recipeUnavailable: "تیاری کی تفصیل ابھی دستیاب نہیں۔",
+    ingredientsUnavailable: "اجزاء کی تفصیل ابھی دستیاب نہیں۔",
+    addToCart: "ٹوکری میں ڈالیں", addToCartAndCheckout: "ٹوکری میں ڈالیں اور چیک آؤٹ کریں",
+    home: "ہوم", mealPlans: "کھانے کے منصوبے", reservations: "میز کی بکنگ", helpFaq: "مدد اور سوالات",
+    yourProfile: "آپ کا پروفائل", about: "ہمارے بارے میں", contact: "رابطہ", explore: "مزید دیکھیں",
+    appView: "ایپ کا منظر", chooseView: "اپنا منظر منتخب کریں", mobileAppView: "موبائل ایپ",
+    desktopAppView: "ڈیسک ٹاپ ایپ", websiteView: "ویب سائٹ", signInRegister: "لاگ ان / رجسٹر",
+    signIn: "لاگ ان", welcomeBack: "خوش آمدید", orderHistory: "آرڈر کی تاریخ", verified: "تصدیق شدہ",
+    menuUpdatedNotification: "مینو میں تبدیلی ہوئی ہے۔ نئے کھانے دیکھیں۔",
+    dealsUpdatedNotification: "نئی ڈیلز دستیاب ہیں۔ آج کی پیشکشیں دیکھیں۔",
+    orderStatusNotification: "آپ کے آرڈر کی صورتحال تبدیل ہوئی ہے۔",
+    paymentStatusNotification: "آپ کی ادائیگی کے بارے میں تازہ اطلاع ہے۔",
+    receiptUploadedNotification: "ادائیگی کی رسید اپ لوڈ ہو گئی۔",
+    openMenu: "مینو کھولیں", freshCookedIn: "بہاولپور میں تازہ پکا ہوا",
+    freeDeliveryAbove: "اس سے زیادہ آرڈر پر مفت ترسیل", openDailyTrack: "روزانہ تازہ گھریلو کھانے · آرڈر کی تازہ صورتحال دستیاب",
+    shareDish: "کھانا شیئر کریں", linkCopied: "لنک کاپی ہو گیا", close: "بند کریں",
+    savedCart: "آپ کی محفوظ ٹوکری", cartWaiting: "آپ کے کھانے منتظر ہیں", item: "کھانا", items: "کھانے",
+    resumeCheckout: "چیک آؤٹ جاری رکھیں", dismissCartReminder: "یاد دہانی بند کریں", suggestedDishes: "آپ کو یہ بھی پسند آ سکتا ہے",
+    completeMeal: "اپنا کھانا مکمل کریں", from: "سے", save: "بچت", regularly: "عام قیمت",
+    addedToCart: "ٹوکری میں شامل ہو گیا", addDealToCart: "ڈیل ٹوکری میں شامل کریں",
+    menuUnavailableTitle: "مینو عارضی طور پر دستیاب نہیں",
+    menuUnavailableDescription: "ابھی مینو لوڈ نہیں ہو سکا۔ براہِ کرم دوبارہ کوشش کریں۔",
+    tryAgain: "دوبارہ کوشش کریں", recentlyViewed: "حال ہی میں دیکھے گئے",
+    reservationSuccess: "میز کی درخواست بھیج دی گئی۔ ہم فون پر تصدیق کریں گے۔",
+    reservationTitle: "میز کی درخواست کریں", reservationName: "آپ کا نام", reservationPhone: "فون",
+    reservationGuests: "مہمان", reservationDateTime: "تاریخ اور وقت", reservationNotes: "نوٹس",
+    reservationNotesPlaceholder: "رسائی کی ضرورت یا خصوصی درخواست (اختیاری)",
+    reservationSaving: "درخواست بھیجی جا رہی ہے…", reservationSubmit: "بکنگ کی درخواست",
+    subscriptionSignInReason: "کھانے کا منصوبہ محفوظ کرنے کے لیے سائن اِن کریں۔",
+    subscriptionSignInRequired: "سبسکرپشن کے لیے تصدیق شدہ اکاؤنٹ سے سائن اِن کریں۔",
+    subscriptionSuccess: "آپ کی درخواست محفوظ ہو گئی۔ باورچی خانہ دستیابی کی تصدیق کرے گا۔",
+    subscriptionTitle: "اپنا منصوبہ منتخب کریں", subscriptionBillingCycle: "ادائیگی کا دورانیہ",
+    weekly: "ہفتہ وار", monthly: "ماہانہ", subscriptionMeal: "کھانا",
+    subscriptionStartDate: "شروع ہونے کی تاریخ", subscriptionEndDate: "آخری تاریخ (اختیاری)",
+    subscriptionDays: "ترسیل کے دن", subscriptionSaving: "محفوظ ہو رہا ہے…", subscriptionSubmit: "کھانے کے منصوبے کی درخواست",
+    helpEyebrow: "مدد کا مرکز", helpTitle: "اکثر پوچھے جانے والے سوالات",
+    menuSearchResults: "آپ کی تلاش کے مطابق کھانے", noSearchResults: "آپ کی تلاش سے کوئی کھانا نہیں ملا۔",
+    delivery: "ترسیل", discount: "رعایت", total: "کل", free: "مفت",
+    ratingUnavailable: "ابھی کوئی ریٹنگ نہیں", estimatedTime: "تقریباً 25–35 منٹ", kitchenClosed: "باورچی خانہ بند ہے",
+    shareError: "یہ کھانا شیئر نہیں ہو سکا۔", shareUnavailable: "اس براؤزر میں شیئرنگ دستیاب نہیں۔",
+    viewPhoto: "تصویر دیکھیں", imageUnavailable: "تصویر دستیاب نہیں", madeFreshToOrder: "آرڈر پر تازہ تیار",
+    optionalAddOns: "اختیاری اضافے", spiceLevel: "مرچ کی مقدار", mild: "ہلکی", medium: "درمیانی", hot: "تیز",
+    allergens: "الرجی کے اجزاء", nutritionPerServing: "فی حصے کی غذائیت", protein: "پروٹین", carbs: "کاربوہائیڈریٹس", fat: "چکنائی",
+    kitchenPreferences: "باورچی خانے کے لیے کوئی خاص ہدایت؟ (اختیاری)", decreaseQuantity: "تعداد کم کریں",
+    increaseQuantity: "تعداد بڑھائیں", extraChutney: "اضافی چٹنی", freshSalad: "تازہ سلاد", raita: "رائتہ",
+  },
+  sd: {
+    settings: "سيٽنگون", preferences: "ترجيحات", currency: "ڪرنسي", soundEffects: "آواز جا اثر",
+    notifications: "نوٽيفڪيشن", orderUpdates: "آرڊر جون خبرون", deliveryUpdates: "پهچائڻ جون خبرون",
+    paymentUpdates: "ادائيگي جون خبرون", promotions: "روزاني آڇون", menuUpdates: "مينيو جون خبرون",
+    notificationPermission: "چونڊيل خبرن لاءِ برائوزر نوٽيفڪيشن جي اجازت ڏيو.",
+    notificationsUnavailable: "برائوزر نوٽيفڪيشن موجود ناهن يا اجازت نه ملي.",
+    searchUnavailable: "مينيو جي ڳولا عارضي طور موجود ناهي.", searchingFor: "ڳولا جاري آهي:",
+    searchLoading: "مينيو لوڊ ٿي رهيو آهي…", proceedCheckout: "چيڪ آئوٽ جاري رکو", continueBrowsing: "مينيو ڏسندا رهو",
+    displayRateNote: "رقم جي مٽاسٽا اندازي مطابق آهي. آرڊر پاڪستاني رپين ۾ چارج ٿيندا.",
+    voiceSearch: "آواز سان ڳولا", voiceOrder: "آواز سان آرڊر", voiceListening: "ٻڌي رهيو آهي…",
+    voiceUnsupported: "هن برائوزر ۾ آواز جي سهولت موجود ناهي.", microphonePermission: "آواز لاءِ مائڪروفون جي اجازت ڏيو.",
+    voiceFailed: "آواز شروع نه ٿي سگهيو. ٻيهر ڪوشش ڪريو.", searchReady: "آواز سان کاڌو ڳوليو.",
+    voiceOrderTitle: "آواز سان آرڊر", voiceOrderDescription: "سنڌي، اردو يا انگريزي ۾ کاڌي جو نالو ۽ تعداد چئو.",
+    voiceOrderPrompt: "کاڌي جو نالو چئو يا آرڊر ڏسڻ لاءِ چيڪ آئوٽ چئو.",
+    voiceOrderAdded: "ٽوڪري ۾ شامل ڪيو ويو.", voiceOrderNoMatch: "هي کاڌو نه مليو. ٻيو نالو ڪوشش ڪريو.",
+    voiceOrderEmpty: "چيڪ آئوٽ کان اڳ کاڌو شامل ڪريو.", goToCheckout: "ٽوڪري ڏسو ۽ چيڪ آئوٽ ڪريو",
+    dishDetails: "کاڌي جي ڄاڻ", dishQr: "کاڌي جو ڪيو آر", scanDishQr: "مڪمل ڄاڻ لاءِ اسڪين ڪريو",
+    ingredients: "جزا", preparation: "تيار ڪرڻ جو طريقو", recipeUnavailable: "تياري جي ڄاڻ اڃا موجود ناهي.",
+    ingredientsUnavailable: "جزن جي ڄاڻ اڃا موجود ناهي.",
+    addToCart: "ٽوڪري ۾ شامل ڪريو", addToCartAndCheckout: "ٽوڪري ۾ شامل ڪريو ۽ چيڪ آئوٽ ڪريو",
+    home: "گهر", mealPlans: "کاڌي جا منصوبا", reservations: "ٽيبل جي بکنگ", helpFaq: "مدد ۽ سوال",
+    yourProfile: "توهان جو پروفائل", about: "اسان بابت", contact: "رابطو", explore: "وڌيڪ ڏسو",
+    appView: "ايپ جو منظر", chooseView: "پنهنجو منظر چونڊيو", mobileAppView: "موبائل ايپ",
+    desktopAppView: "ڊيسڪ ٽاپ ايپ", websiteView: "ويب سائيٽ", signInRegister: "سائن ان / رجسٽر",
+    signIn: "سائن ان", welcomeBack: "ڀليڪار", orderHistory: "آرڊر جي تاريخ", verified: "تصديق ٿيل",
+    menuUpdatedNotification: "مينيو تبديل ٿيو آهي. نوان کاڌا ڏسو.",
+    dealsUpdatedNotification: "نئينون آڇون موجود آهن. اڄ جون ڊيلز ڏسو.",
+    orderStatusNotification: "توهان جي آرڊر جي حالت تبديل ٿي آهي.",
+    paymentStatusNotification: "توهان جي ادائيگي بابت نئين ڄاڻ آهي.",
+    receiptUploadedNotification: "ادائيگي جي رسيد اپ لوڊ ٿي وئي.",
+    openMenu: "مينيو کوليو", freshCookedIn: "بهاولپور ۾ تازو پچيل",
+    freeDeliveryAbove: "هن کان وڌيڪ آرڊر تي مفت پهچائڻ", openDailyTrack: "روزانو تازو گهر جو کاڌو · آرڊر جي حالت ڏسو",
+    shareDish: "کاڌو شيئر ڪريو", linkCopied: "لنڪ ڪاپي ٿيو", close: "بند ڪريو",
+    savedCart: "توهان جي محفوظ ٽوڪري", cartWaiting: "توهان جا کاڌا منتظر آهن", item: "کاڌو", items: "کاڌا",
+    resumeCheckout: "چيڪ آئوٽ جاري رکو", dismissCartReminder: "ياد ڏياريندڙ بند ڪريو", suggestedDishes: "شايد اوهان کي هي به وڻن",
+    completeMeal: "پنهنجو کاڌو مڪمل ڪريو", from: "کان", save: "بچت", regularly: "عام قيمت",
+    addedToCart: "ٽوڪري ۾ شامل ٿيو", addDealToCart: "ڊيل ٽوڪري ۾ شامل ڪريو",
+    menuUnavailableTitle: "مينيو عارضي طور موجود ناهي",
+    menuUnavailableDescription: "هن وقت مينيو لوڊ نه ٿي سگهيو. ٻيهر ڪوشش ڪريو.",
+    tryAgain: "ٻيهر ڪوشش ڪريو", recentlyViewed: "تازو ڏٺل",
+    reservationSuccess: "ٽيبل جي درخواست موڪلي وئي. اسان فون تي تصديق ڪنداسين.",
+    reservationTitle: "ٽيبل جي درخواست", reservationName: "توهان جو نالو", reservationPhone: "فون",
+    reservationGuests: "مهمان", reservationDateTime: "تاريخ ۽ وقت", reservationNotes: "نوٽ",
+    reservationNotesPlaceholder: "رسائي جي ضرورت يا خاص درخواست (اختياري)",
+    reservationSaving: "موڪلي رهيو آهي…", reservationSubmit: "ٽيبل جي درخواست موڪليو",
+    subscriptionSignInReason: "کاڌي جي رڪنيت محفوظ ڪرڻ لاءِ سائن اِن ڪريو.",
+    subscriptionSignInRequired: "رڪنيت لاءِ تصديق ٿيل اڪائونٽ سان سائن اِن ڪريو.",
+    subscriptionSuccess: "کاڌي جي منصوبي جي درخواست محفوظ ٿي وئي. باورچي خانو دستيابي جي تصديق ڪندو.",
+    subscriptionTitle: "پنهنجو منصوبو چونڊيو", subscriptionBillingCycle: "ادائيگي جو مدو",
+    weekly: "هفتيوار", monthly: "مهيني وارو", subscriptionMeal: "کاڌو",
+    subscriptionStartDate: "شروع ٿيڻ جي تاريخ", subscriptionEndDate: "پڄاڻي جي تاريخ (اختياري)",
+    subscriptionDays: "پهچائڻ جا ڏينهن", subscriptionSaving: "محفوظ ٿي رهيو آهي…", subscriptionSubmit: "کاڌي جي منصوبي جي درخواست",
+    helpEyebrow: "مدد جو مرڪز", helpTitle: "اڪثر پڇيا ويندڙ سوال",
+    reservationEyebrow: "ٽيبل جي رزرويشن", reservationPageTitle: "گهر جي کاڌي سان گڏجي ويهو.",
+    reservationPageDescription: "پنهنجي گروپ لاءِ رزرويشن موڪليو. اسان فون تي وقت جي تصديق ڪنداسين.",
+    subscriptionsEyebrow: "کاڌي جا منصوبا", subscriptionsPageTitle: "تازو کاڌو، اوهان جي وقت مطابق.",
+    subscriptionsPageDescription: "پنهنجا ڏينهن ۽ کاڌي جو وقت چونڊيو. منصوبو شروع ٿيڻ کان اڳ باورچي خانو دستيابي جي تصديق ڪندو.",
+    menuSearchResults: "ڳولا سان ملندڙ کاڌا", noSearchResults: "اوهان جي ڳولا سان ڪو کاڌو نه مليو.",
+    delivery: "پهچائڻ", discount: "رعايت", total: "ڪل", free: "مفت",
+    ratingUnavailable: "اڃا ريٽنگ ناهي", estimatedTime: "اندازي طور 25–35 منٽ", kitchenClosed: "باورچي خانو بند آهي",
+    shareError: "هي کاڌو شيئر نه ٿي سگهيو.", shareUnavailable: "هن برائوزر ۾ شيئرنگ موجود ناهي.",
+    viewPhoto: "تصوير ڏسو", imageUnavailable: "تصوير موجود ناهي", madeFreshToOrder: "آرڊر تي تازو تيار",
+    optionalAddOns: "اختياري اضافا", spiceLevel: "مرچ جي مقدار", mild: "هلڪو", medium: "وچولو", hot: "تيز",
+    allergens: "الرجي وارا جزا", nutritionPerServing: "هر حصي جي غذائيت", protein: "پروٽين", carbs: "ڪاربوهائيڊريٽ", fat: "چرٻي",
+    kitchenPreferences: "باورچي خاني لاءِ ڪا خاص هدايت؟ (اختياري)", decreaseQuantity: "تعداد گهٽايو",
+    increaseQuantity: "تعداد وڌايو", extraChutney: "وڌيڪ چٽڻي", freshSalad: "تازو سلاد", raita: "رائتو",
+  },
+  "ur-Latn": {
+    settings: "Settings", preferences: "Tarjeehat", currency: "Currency", soundEffects: "Sound effects",
+    notifications: "Notifications", orderUpdates: "Order updates", deliveryUpdates: "Delivery updates",
+    paymentUpdates: "Payment updates", promotions: "Rozana deals", menuUpdates: "Menu updates",
+    notificationPermission: "Chuni hui updates ke liye browser notifications ki ijazat dein.",
+    notificationsUnavailable: "Browser notifications nahin hain ya ijazat nahin mili.",
+    searchUnavailable: "Menu search filhaal dastiyab nahin.", searchingFor: "Talash jaari hai:",
+    searchLoading: "Menu load ho raha hai…", proceedCheckout: "Checkout jari rakhein", continueBrowsing: "Menu dekhte rahein",
+    displayRateNote: "Currency conversion andazay ke mutabiq hai. Order PKR mein charge hoga.",
+    voiceSearch: "Voice search", voiceOrder: "Voice se order", voiceListening: "Suna ja raha hai…",
+    voiceUnsupported: "Is browser mein voice input maujood nahin.", microphonePermission: "Voice ke liye microphone access dein.",
+    voiceFailed: "Voice shuru nahin ho saki. Dobara koshish karein.", searchReady: "Voice se khana talash karein.",
+    voiceOrderTitle: "Voice se order", voiceOrderDescription: "Urdu, Sindhi ya English mein dish ka naam aur tadaad bolein.",
+    voiceOrderPrompt: "Dish ka naam bolein ya order dekhne ke liye checkout bolein.",
+    voiceOrderAdded: "Aap ke cart mein shamil kar diya.", voiceOrderNoMatch: "Yeh dish nahin mili. Doosra naam azmayein.",
+    voiceOrderEmpty: "Checkout se pehle dish cart mein daalein.", goToCheckout: "Cart dekhein aur checkout karein",
+    dishDetails: "Dish ki tafseel", dishQr: "Dish QR", scanDishQr: "Mukammal tafseel ke liye scan karein",
+    ingredients: "Ajza", preparation: "Tayyar karne ka tareeqa", recipeUnavailable: "Tayari ki tafseel abhi maujood nahin.",
+    ingredientsUnavailable: "Ajza ki tafseel abhi maujood nahin.",
+    addToCart: "Cart mein daalein", addToCartAndCheckout: "Cart mein daalein aur checkout karein",
+    home: "Home", mealPlans: "Meal plans", reservations: "Table booking", helpFaq: "Madad aur FAQs",
+    yourProfile: "Aap ka profile", about: "Hamare baare mein", contact: "Rabita", explore: "Mazeed dekhein",
+    appView: "App view", chooseView: "Apna view chunein", mobileAppView: "Mobile app",
+    desktopAppView: "Desktop app", websiteView: "Website", signInRegister: "Sign in / Register",
+    signIn: "Sign in", welcomeBack: "Khush aamdeed", orderHistory: "Order history", verified: "Verified",
+    menuUpdatedNotification: "Menu update hua hai. Naye khanay dekhein.",
+    dealsUpdatedNotification: "Nayi deals dastiyab hain. Aaj ki offers dekhein.",
+    orderStatusNotification: "Aap ke order ka status badal gaya hai.",
+    paymentStatusNotification: "Aap ki payment ke baare mein nayi update hai.",
+    receiptUploadedNotification: "Payment receipt upload ho gayi.",
+    openMenu: "Menu kholein", freshCookedIn: "Bahawalpur mein taaza paka hua",
+    freeDeliveryAbove: "Is se zyada order par free delivery", openDailyTrack: "Rozana taaza ghar ka khana · Live order tracking dastiyab",
+    shareDish: "Dish share karein", linkCopied: "Link copy ho gaya", close: "Band karein",
+    savedCart: "Aap ka saved cart", cartWaiting: "Aap ke items muntazir hain", item: "item", items: "items",
+    resumeCheckout: "Checkout jari rakhein", dismissCartReminder: "Reminder band karein", suggestedDishes: "Aap ko yeh bhi pasand aa sakta hai",
+    completeMeal: "Apna meal mukammal karein", from: "Se", save: "Bachat", regularly: "Aam qeemat",
+    addedToCart: "Cart mein shamil ho gaya", addDealToCart: "Deal cart mein daalein",
+    emptyCart: "Aap ka cart khaali hai.", browseMenu: "Menu dekhein", customerInfo: "Customer ki tafseel",
+    fullName: "Poora naam", phoneNumber: "Phone number", chooseArea: "Apna ilaqa chunein",
+    fullAddress: "Mukammal pata", orderSummary: "Order ka khulasa", subtotal: "Subtotal",
+    orderNumber: "Order number", phoneUsed: "Istemaal shuda phone number", checkStatus: "Live status dekhein",
+    menuUnavailableTitle: "Menu filhaal dastiyab nahin",
+    menuUnavailableDescription: "Menu abhi load nahin ho saka. Dobara koshish karein.",
+    tryAgain: "Dobara koshish karein", recentlyViewed: "Haal hi mein dekhe gaye",
+    reservationSuccess: "Table ki darkhwast bhej di gayi. Hum phone par tasdeeq karenge.",
+    reservationTitle: "Table ki darkhwast", reservationName: "Aap ka naam", reservationPhone: "Phone",
+    reservationGuests: "Mehmaan", reservationDateTime: "Tareekh aur waqt", reservationNotes: "Notes",
+    reservationNotesPlaceholder: "Access ki zaroorat ya khaas darkhwast (ikhtiyari)",
+    reservationSaving: "Bheja ja raha hai…", reservationSubmit: "Table ki darkhwast bhejein",
+    subscriptionSignInReason: "Meal subscription save karne ke liye sign in karein.",
+    subscriptionSignInRequired: "Subscribe karne ke liye verified account se sign in karein.",
+    subscriptionSuccess: "Meal plan request save ho gayi. Kitchen dastiyabi confirm karegi.",
+    subscriptionTitle: "Apna plan chunein", subscriptionBillingCycle: "Billing cycle",
+    weekly: "Haftawar", monthly: "Mahawari", subscriptionMeal: "Meal",
+    subscriptionStartDate: "Shuru ki tareekh", subscriptionEndDate: "Aakhri tareekh (ikhtiyari)",
+    subscriptionDays: "Delivery ke din", subscriptionSaving: "Save ho raha hai…", subscriptionSubmit: "Meal plan ki darkhwast",
+    helpEyebrow: "Madad ka markaz", helpTitle: "Aksar poochay gaye sawalat",
+    reservationEyebrow: "Table reservation", reservationPageTitle: "Ghar ke khanay par saath baithiye.",
+    reservationPageDescription: "Apne group ke liye reservation bhejein. Hum phone par waqt confirm karenge.",
+    subscriptionsEyebrow: "Meal plans", subscriptionsPageTitle: "Taaza khana, aap ke waqt ke mutabiq.",
+    subscriptionsPageDescription: "Apne din aur meal time chunein. Plan shuru hone se pehle kitchen dastiyabi confirm karegi.",
+    menuSearchResults: "Talash se milte julte khanay", noSearchResults: "Aap ki talash mein koi dish nahin mili.",
+    delivery: "Delivery", discount: "Discount", total: "Kul", free: "Muft",
+    ratingUnavailable: "Abhi rating nahin", estimatedTime: "Andazan 25–35 minute", kitchenClosed: "Kitchen band hai",
+    shareError: "Yeh dish share nahin ho saki.", shareUnavailable: "Is browser mein sharing dastiyab nahin.",
+    viewPhoto: "Tasveer dekhein", imageUnavailable: "tasveer dastiyab nahin", madeFreshToOrder: "ORDER PAR TAAZA TAYYAR",
+    optionalAddOns: "Ikhtiyari izafay", spiceLevel: "Mirch ki miqdaar", mild: "Halki", medium: "Darmiyani", hot: "Tez",
+    allergens: "Allergy ke ajza", nutritionPerServing: "Har serving ki ghizaiyat", protein: "Protein", carbs: "Carbs", fat: "Fat",
+    kitchenPreferences: "Kitchen ke liye koi khaas hidayat? (ikhtiyari)", decreaseQuantity: "Tadaad kam karein",
+    increaseQuantity: "Tadaad barhayein", extraChutney: "Extra chutney", freshSalad: "Taaza salad", raita: "Raita",
+  },
+};
+for (const locale of Object.keys(storefrontTranslations) as Locale[]) {
+  Object.assign(translations[locale], storefrontTranslations[locale]);
+}
+
+type SettingsValue = {
+  locale: Locale;
+  theme: Theme;
+  currency: Currency;
+  setLocale: (locale: Locale) => void;
+  setTheme: (theme: Theme) => void;
+  setCurrency: (currency: Currency) => void;
+  formatCurrency: (amount: number) => string;
+  t: (key: string) => string;
+  localeNames: Record<Locale, string>;
+  themeNames: Record<Theme, string>;
+};
 const SettingsContext = createContext<SettingsValue | null>(null);
 
 export function SiteSettingsProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
   const [theme, setThemeState] = useState<Theme>("light");
+  const [currency, setCurrencyState] = useState<Currency>("PKR");
   useEffect(() => {
     try {
       const savedLocale = localStorage.getItem("hmf_locale") as Locale | null;
       const savedTheme = localStorage.getItem("hmf_theme") as Theme | null;
+      const savedCurrency = localStorage.getItem("hmf_currency") as Currency | null;
       // Restore browser preferences only after hydration so server and client render the same initial markup.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (savedLocale && savedLocale in localeNames) setLocaleState(savedLocale);
       if (savedTheme && savedTheme in themeNames) setThemeState(savedTheme);
+      if (savedCurrency && savedCurrency in pkrPerUnit) setCurrencyState(savedCurrency);
     } catch { /* Preferences remain usable when storage is unavailable. */ }
   }, []);
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = rtlLocales.has(locale) ? "rtl" : "ltr";
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem("hmf_locale", locale); localStorage.setItem("hmf_theme", theme); } catch { /* Storage is optional. */ }
-  }, [locale, theme]);
-  const value = useMemo<SettingsValue>(() => ({ locale, theme, setLocale: setLocaleState, setTheme: setThemeState, t: (key) => translations[locale][key] ?? translations.en[key] ?? key, localeNames, themeNames }), [locale, theme]);
+    try {
+      localStorage.setItem("hmf_locale", locale);
+      localStorage.setItem("hmf_theme", theme);
+      localStorage.setItem("hmf_currency", currency);
+    } catch { /* Storage is optional. */ }
+  }, [locale, theme, currency]);
+  const value = useMemo<SettingsValue>(() => ({
+    locale,
+    theme,
+    currency,
+    setLocale: setLocaleState,
+    setTheme: setThemeState,
+    setCurrency: setCurrencyState,
+    formatCurrency: (amount) => {
+      const value = amount / pkrPerUnit[currency];
+      return new Intl.NumberFormat(currencyLocales[locale], {
+        style: "currency",
+        currency,
+        currencyDisplay: "narrowSymbol",
+        minimumFractionDigits: currency === "PKR" ? 0 : 2,
+        maximumFractionDigits: currency === "PKR" ? 0 : 2,
+      }).format(value);
+    },
+    t: (key) => translations[locale][key] ?? translations.en[key] ?? key,
+    localeNames,
+    themeNames,
+  }), [locale, theme, currency]);
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
 

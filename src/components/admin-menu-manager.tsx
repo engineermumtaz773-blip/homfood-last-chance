@@ -28,6 +28,8 @@ export function AdminMenuManager() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [ingredientsText, setIngredientsText] = useState("");
+  const [preparation, setPreparation] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>(["Breakfast"]);
   const [portions, setPortions] = useState<Portion[]>([{ name: "regular", price: 150 }]);
   const [available, setAvailable] = useState(true);
@@ -69,6 +71,8 @@ export function AdminMenuManager() {
     setEditingId(null);
     setName("");
     setDescription("");
+    setIngredientsText("");
+    setPreparation("");
     setSelectedCategories(["Breakfast"]);
     setPortions([{ name: "regular", price: 150 }]);
     setAvailable(true);
@@ -83,6 +87,8 @@ export function AdminMenuManager() {
     setEditingId(dish.id);
     setName(dish.name);
     setDescription(dish.description);
+    setIngredientsText((dish.ingredients || []).join("\n"));
+    setPreparation(dish.preparation || "");
     const cats = Array.isArray(dish.categories) && dish.categories.length > 0 ? dish.categories : [dish.category];
     setSelectedCategories(cats);
     setPortions(dish.portions && dish.portions.length > 0 ? [...dish.portions] : [{ name: "regular", price: 150 }]);
@@ -156,6 +162,8 @@ export function AdminMenuManager() {
         id: editingId ?? undefined,
         name: name.trim(),
         description: description.trim(),
+        ingredients: ingredientsText.split(/\r?\n/u).map((item) => item.trim()).filter(Boolean),
+        preparation: preparation.trim(),
         category: selectedCategories[0] || "Breakfast",
         categories: selectedCategories,
         portions,
@@ -607,6 +615,50 @@ export function AdminMenuManager() {
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="Traditional homemade paratha stuffed with flavorful spiced potatoes, freshly prepared."
+            style={{
+              width: "100%",
+              padding: "11px 14px",
+              borderRadius: "10px",
+              border: "1px solid #e5e7eb",
+              fontSize: "14px",
+              outline: "none",
+              color: "#111827",
+              resize: "vertical",
+            }}
+          />
+        </div>
+        <div style={{ marginTop: "16px" }}>
+          <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#374151", marginBottom: "6px" }}>
+            Ingredients (one per line)
+          </label>
+          <textarea
+            value={ingredientsText}
+            onChange={(e) => setIngredientsText(e.target.value)}
+            rows={4}
+            maxLength={4000}
+            placeholder="Add only the verified ingredients used in this dish."
+            style={{
+              width: "100%",
+              padding: "11px 14px",
+              borderRadius: "10px",
+              border: "1px solid #e5e7eb",
+              fontSize: "14px",
+              outline: "none",
+              color: "#111827",
+              resize: "vertical",
+            }}
+          />
+        </div>
+        <div style={{ marginTop: "16px" }}>
+          <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#374151", marginBottom: "6px" }}>
+            Preparation details
+          </label>
+          <textarea
+            value={preparation}
+            onChange={(e) => setPreparation(e.target.value)}
+            rows={4}
+            maxLength={3000}
+            placeholder="Describe how the kitchen prepares this dish."
             style={{
               width: "100%",
               padding: "11px 14px",

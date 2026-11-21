@@ -20,6 +20,7 @@ import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
 import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 import { useCart } from "@/components/cart-provider";
 import { ScheduledOrdersManager } from "@/components/scheduled-orders-manager";
+import { useSiteSettings } from "@/components/site-settings";
 
 const emptyProfile: CustomerProfile = {
   name: "",
@@ -52,6 +53,7 @@ type ReservationRequest = {
 };
 
 export function ProfilePortal() {
+  const { formatCurrency } = useSiteSettings();
   const router = useRouter();
   const { addItem, clearCart } = useCart();
   const [profile, setProfile] = useState<CustomerProfile>(emptyProfile);
@@ -1186,7 +1188,7 @@ export function ProfilePortal() {
                     </div>
                     <div style={{ display: "grid", justifyItems: "end", gap: 6, textAlign: "right" }}>
                       <strong style={{ display: "block", fontSize: "15px", color: "#166534" }}>
-                        Rs. {o.total.toLocaleString()}
+                        {formatCurrency(o.total)}
                       </strong>
                       <span
                         style={{

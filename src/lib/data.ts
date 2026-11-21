@@ -15,6 +15,8 @@ export type Dish = {
   servingSize?: string;
   dietaryTags?: string[];
   allergens?: string[];
+  ingredients?: string[];
+  preparation?: string;
   nutrition?: { calories?: number; proteinGrams?: number; carbsGrams?: number; fatGrams?: number };
   dailyStockLimit?: number | null;
   remainingStock?: number | null;

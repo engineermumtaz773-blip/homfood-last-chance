@@ -1,20 +1,46 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { getRealtimeClient, REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 import { REALTIME_EVENT_DOM, type RealtimeEventPayload } from "@/lib/realtime-bus";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth-client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useSiteSettings } from "@/components/site-settings";
+import { notifyCustomer } from "@/lib/customer-notifications";
 
 const tables = ["menu_items", "daily_deals", "categories", "orders", "meal_subscriptions", "reservations", "store_settings_public", "profiles", "order_messages", "admin_notification_events"];
 
 export function RealtimeSyncRuntime() {
+  const { t } = useSiteSettings();
+  const translate = useRef(t);
+  useEffect(() => {
+    translate.current = t;
+  }, [t]);
+
   useEffect(() => {
     const client = getRealtimeClient();
     let channel: RealtimeChannel | null = null;
 
     const publish = (table: string, payload?: Record<string, unknown>) => {
       const syncTable = table === "store_settings_public" ? "store_settings" : table;
+      const currentT = translate.current;
+      if (table === "menu_items") {
+        notifyCustomer("menuUpdates", currentT("menuUpdates"), currentT("menuUpdatedNotification"));
+      } else if (table === "daily_deals") {
+        notifyCustomer("promotions", currentT("promotions"), currentT("dealsUpdatedNotification"));
+      } else if (table === "orders") {
+        const orderNumber = typeof payload?.number === "string" ? payload.number : "";
+        const suffix = orderNumber ? `-${orderNumber}` : "";
+        notifyCustomer("orderUpdates", currentT("orderUpdates"), currentT("orderStatusNotification"), `homefood-order${suffix}`);
+        const status = typeof payload?.status === "string" ? payload.status.toLowerCase() : "";
+        if (["ready", "out_for_delivery", "out-for-delivery", "delivering", "arriving", "delivered", "completed", "on_the_way"].includes(status)) {
+          notifyCustomer("deliveryUpdates", currentT("deliveryUpdates"), currentT("orderStatusNotification"), `homefood-delivery${suffix}`);
+        }
+        const paymentStatus = typeof payload?.payment_status === "string" ? payload.payment_status.toLowerCase() : "";
+        if (paymentStatus && !["pending", "unpaid"].includes(paymentStatus)) {
+          notifyCustomer("paymentUpdates", currentT("paymentUpdates"), currentT("paymentStatusNotification"), `homefood-payment${suffix}`);
+        }
+      }
       window.dispatchEvent(new CustomEvent(REALTIME_SYNC_EVENT, { detail: { table: syncTable, at: Date.now() } }));
       const eventMap: Partial<Record<string, RealtimeEventPayload["type"]>> = {
         order_messages: "chat_message",

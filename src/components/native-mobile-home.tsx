@@ -15,6 +15,8 @@ import { REALTIME_SYNC_EVENT } from "@/lib/realtime-client";
 import { useKitchenAvailability } from "@/hooks/use-kitchen-availability";
 import { getLiveOrderStatus, type LiveOrderStatus } from "@/lib/order-api";
 import type { OrderMessage } from "@/lib/supabase-server";
+import { DishQrLink } from "@/components/dish-qr-link";
+import { useSiteSettings } from "@/components/site-settings";
 
 const CATEGORIES = [
   { id: "All", name: "All", icon: "🥘" },
@@ -74,6 +76,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
   const liveCatalog = useLiveDishes(initialDishes);
   const kitchen = useKitchenAvailability();
   const { addItem } = useCart();
+  const { formatCurrency } = useSiteSettings();
 
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -303,7 +306,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
       quantity: 1,
     });
     playAlertChime("success");
-    setToastMessage(`🛍️ Added ${dish.name} (PKR ${portion.price}) to bag!`);
+    setToastMessage(`🛍️ Added ${dish.name} (${formatCurrency(portion.price)}) to bag!`);
     setTimeout(() => setToastMessage(null), 2500);
   };
 
@@ -1253,6 +1256,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                     >
                       {dish.name}
                     </h3>
+                    <DishQrLink dishId={dish.id} dishName={dish.name} />
 
                     {/* Price & Add Button */}
                     <div
@@ -1269,7 +1273,7 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                           {portion.name}
                         </span>
                         <strong style={{ fontSize: "13px", color: "#0f172a", fontWeight: 800 }}>
-                          PKR {portion.price.toLocaleString()}
+                          {formatCurrency(portion.price)}
                         </strong>
                       </div>
 
@@ -1398,9 +1402,9 @@ export function NativeMobileHome({ dishes: initialDishes }: { dishes: Dish[] }) 
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   {[
                     { id: "all", label: "All Prices" },
-                    { id: "under_300", label: "Under PKR 300" },
-                    { id: "300_600", label: "PKR 300 - 600" },
-                    { id: "600_plus", label: "PKR 600+" },
+                    { id: "under_300", label: `Under ${formatCurrency(300)}` },
+                    { id: "300_600", label: `${formatCurrency(300)} - ${formatCurrency(600)}` },
+                    { id: "600_plus", label: `${formatCurrency(600)}+` },
                   ].map((p) => (
                     <button
                       key={p.id}

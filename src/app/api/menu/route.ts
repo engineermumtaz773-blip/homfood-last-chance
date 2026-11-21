@@ -80,6 +80,8 @@ export async function POST(request: NextRequest) {
       nutrition,
       allergens,
       addons,
+      ingredients,
+      preparation,
     } = body;
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "Dish name is required" }, { status: 400 });
@@ -104,6 +106,13 @@ export async function POST(request: NextRequest) {
     }
     if (addons !== undefined && !Array.isArray(addons)) {
       return NextResponse.json({ error: "Add-ons must be a list." }, { status: 400 });
+    }
+    if (ingredients !== undefined && (!Array.isArray(ingredients) || ingredients.length > 80 ||
+      ingredients.some((item: unknown) => typeof item !== "string" || item.trim().length > 120))) {
+      return NextResponse.json({ error: "Ingredients must be a list of up to 80 names." }, { status: 400 });
+    }
+    if (preparation !== undefined && (typeof preparation !== "string" || preparation.trim().length > 3000)) {
+      return NextResponse.json({ error: "Preparation details must be text under 3,000 characters." }, { status: 400 });
     }
 
     if (portions.some((portion: unknown) => !portion || typeof portion !== "object" || Array.isArray(portion))) {
@@ -132,6 +141,10 @@ export async function POST(request: NextRequest) {
       nutrition: nutrition as Dish["nutrition"] | undefined,
       allergens: Array.isArray(allergens) ? allergens as string[] : undefined,
       addons: Array.isArray(addons) ? addons : undefined,
+      ingredients: Array.isArray(ingredients)
+        ? ingredients.map((item: string) => item.trim()).filter(Boolean)
+        : undefined,
+      preparation: typeof preparation === "string" ? preparation.trim() : undefined,
     };
     assertSupabaseConfigured();
     const savedDish = await upsertSupabaseDish(dishInput);

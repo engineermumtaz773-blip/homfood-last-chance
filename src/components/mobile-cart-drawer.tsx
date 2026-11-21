@@ -13,11 +13,13 @@ import {
   RAAST_REF_NUMBER,
 } from "@/lib/emvco-qr";
 import { QRCodeSVG } from "qrcode.react";
+import { useSiteSettings } from "@/components/site-settings";
 
 export function MobileCartDrawer() {
   const [isOpen, setIsOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const { items, updateQuantity, removeItem } = useCart();
+  const { formatCurrency, t } = useSiteSettings();
 
   useEffect(() => {
     const handleOpen = () => setIsOpen(true);
@@ -181,7 +183,7 @@ export function MobileCartDrawer() {
                             {item.name}
                           </strong>
                           <span style={{ fontSize: "12px", color: "#64748b" }}>
-                            {item.portion} · Rs. {item.price} each
+                            {item.portion} · {formatCurrency(item.price)} each
                           </span>
                           {item.specialInstructions && (
                             <small style={{ display: "block", color: "#059669", fontSize: "11px" }}>
@@ -243,7 +245,7 @@ export function MobileCartDrawer() {
                           </div>
 
                           <span style={{ fontSize: "13px", fontWeight: 800, color: "#0f172a", minWidth: "60px", textAlign: "right" }}>
-                            Rs. {item.price * item.quantity}
+                            {formatCurrency(item.price * item.quantity)}
                           </span>
                         </div>
                       </div>
@@ -263,15 +265,15 @@ export function MobileCartDrawer() {
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px", fontSize: "13px", color: "#64748b" }}>
                     <span>Subtotal</span>
-                    <span>PKR {totalAmount.toLocaleString()}</span>
+                    <span>{formatCurrency(totalAmount)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "13px", color: "#16a34a" }}>
                     <span>Delivery (Bahawalpur)</span>
-                    <strong style={{ fontWeight: 700 }}>FREE</strong>
+                    <strong style={{ fontWeight: 700 }}>{t("free")}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px", fontSize: "17px", fontWeight: 800, color: "#0f172a" }}>
                     <span>Total Amount</span>
-                    <span style={{ color: "#059669" }}>PKR {totalAmount.toLocaleString()}</span>
+                    <span style={{ color: "#059669" }}>{formatCurrency(totalAmount)}</span>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>

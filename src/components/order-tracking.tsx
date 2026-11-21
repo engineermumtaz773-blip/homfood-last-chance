@@ -62,7 +62,7 @@ const STAGE_DETAILS = [
 const ORDER_CANCELLATION_WINDOW_SECONDS = 5 * 60;
 
 export function OrderTracking() {
-  const { t } = useSiteSettings();
+  const { t, formatCurrency } = useSiteSettings();
   const [orders, setOrders] = useState<OrderRequest[]>([]);
   const [orderNumber, setOrderNumber] = useState("");
   const [phone, setPhone] = useState("");
@@ -460,7 +460,7 @@ export function OrderTracking() {
                   : "Delivered & Completed"}
               </strong>
               <div style={{ fontSize: "12px", color: "#475569", marginTop: "3px" }}>
-                Order <strong>{liveOrder.number}</strong> · PKR {liveOrder.total.toLocaleString()} · Updated{" "}
+                Order <strong>{liveOrder.number}</strong> · {formatCurrency(liveOrder.total)} · Updated{" "}
                 {new Date(liveOrder.updated_at).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -475,11 +475,11 @@ export function OrderTracking() {
               <OrderTimeline order={liveOrder} />
               <div className="tracking-order-summary">
                 <strong>Order summary</strong>
-                {liveOrder.items.map((item, index) => <div key={`${item.id}-${item.portion}-${index}`}><span>{item.name} · {item.portion} × {item.quantity}</span><b>Rs. {(item.price * item.quantity).toLocaleString("en-PK")}</b></div>)}
-                <div><span>Subtotal</span><b>Rs. {liveOrder.subtotal.toLocaleString("en-PK")}</b></div>
-                {liveOrder.discount > 0 && <div><span>Discount</span><b>− Rs. {liveOrder.discount.toLocaleString("en-PK")}</b></div>}
-                <div><span>Delivery</span><b>Rs. {liveOrder.deliveryFee.toLocaleString("en-PK")}</b></div>
-                <div className="tracking-order-total"><span>Total</span><b>Rs. {liveOrder.total.toLocaleString("en-PK")}</b></div>
+                {liveOrder.items.map((item, index) => <div key={`${item.id}-${item.portion}-${index}`}><span>{item.name} · {item.portion} × {item.quantity}</span><b>{formatCurrency(item.price * item.quantity)}</b></div>)}
+                <div><span>{t("subtotal")}</span><b>{formatCurrency(liveOrder.subtotal)}</b></div>
+                {liveOrder.discount > 0 && <div><span>{t("discount")}</span><b>− {formatCurrency(liveOrder.discount)}</b></div>}
+                <div><span>{t("delivery")}</span><b>{formatCurrency(liveOrder.deliveryFee)}</b></div>
+                <div className="tracking-order-total"><span>{t("total")}</span><b>{formatCurrency(liveOrder.total)}</b></div>
                 <small>{liveOrder.address}{liveOrder.area ? `, ${liveOrder.area}` : ""}</small>
               </div>
               {liveOrder.paymentSlipUrl && lookupTarget && <a className="tracking-payment-slip" href={`/api/orders/slip?${new URLSearchParams({ number: liveOrder.number, phone: lookupTarget.phone })}`} target="_blank" rel="noreferrer">View uploaded payment slip · {liveOrder.paymentSlipName || "Receipt"}</a>}

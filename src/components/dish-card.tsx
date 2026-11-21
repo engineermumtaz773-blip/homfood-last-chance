@@ -12,8 +12,9 @@ import { acquireScrollLock } from "@/lib/scroll-lock";
 import { useKitchenAvailability } from "@/hooks/use-kitchen-availability";
 import { recordRecentDish } from "@/lib/recent-dishes";
 import { FavoriteButton } from "@/components/favorite-button";
+import { DishQrLink } from "@/components/dish-qr-link";
 
-function AnimatedPrice({ value }: { value: number }) {
+function AnimatedPrice({ value, format }: { value: number; format: (amount: number) => string }) {
   const [displayValue, setDisplayValue] = useState(value);
   const previousValue = useRef(value);
 
@@ -35,7 +36,7 @@ function AnimatedPrice({ value }: { value: number }) {
     return () => window.cancelAnimationFrame(frame);
   }, [value]);
 
-  return <>{displayValue.toLocaleString()}</>;
+  return <>{format(displayValue)}</>;
 }
 
 export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: number }) {
@@ -50,18 +51,18 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
   const [spiceLevel, setSpiceLevel] = useState<"Mild" | "Medium" | "Hot">("Medium");
   const { addItem } = useCart();
   const router = useRouter();
-  const { locale, t } = useSiteSettings();
+  const { locale, t, formatCurrency } = useSiteSettings();
   const reducedMotion = useReducedMotion();
   const kitchen = useKitchenAvailability();
   const portion = dish.portions[portionIndex];
   const localized = locale === "en" ? dish : dish.translations?.[locale] ?? dish;
   const available = dish.available !== false && kitchen?.available !== false;
-  const addOns = [{ name: "Extra chutney", price: 0 }, { name: "Fresh salad", price: 120 }, { name: "Raita", price: 100 }];
+  const addOns = [{ name: t("extraChutney"), price: 0 }, { name: t("freshSalad"), price: 120 }, { name: t("raita"), price: 100 }];
   const addOnTotal = addOns.reduce((sum, addOn) => sum + (selectedAddOns.includes(addOn.name) ? addOn.price : 0), 0);
   const addToCart = (goToCheckout: boolean) => {
     const addOnNotes = selectedAddOns.map((name) => {
       const addOn = addOns.find((item) => item.name === name);
-      return addOn && addOn.price > 0 ? `${name} (+Rs. ${addOn.price})` : name;
+      return addOn && addOn.price > 0 ? `${name} (+${formatCurrency(addOn.price)})` : name;
     }).join(", ");
     const notes = [`Spice: ${spiceLevel}`, addOnNotes ? `Add-ons: ${addOnNotes}` : "", instructions.trim()].filter(Boolean).join(" · ");
     addItem({ id: dish.id, name: localized.name, portion: portion.name, price: portion.price + addOnTotal, quantity, specialInstructions: notes || undefined });
@@ -73,16 +74,16 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
     if (goToCheckout) router.push("/checkout");
   };
   async function shareDish() {
-    const url = `${window.location.origin}/menu#dish-${dish.id}`;
+    const url = `${window.location.origin}/dish/${dish.id}`;
     try {
       if (navigator.share) await navigator.share({ title: localized.name, text: localized.description, url });
       else if (navigator.clipboard) {
         await navigator.clipboard.writeText(url);
-        setShareMessage("Link copied");
-      } else setShareMessage("Sharing is not available in this browser.");
+        setShareMessage(t("linkCopied"));
+      } else setShareMessage(t("shareUnavailable"));
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
-      setShareMessage("Could not share this dish.");
+      setShareMessage(t("shareError"));
     }
     window.setTimeout(() => setShareMessage(""), 2400);
   }
@@ -99,34 +100,35 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
   return (
     <motion.article id={`dish-${dish.id}`} className={`dish-card ${available ? "" : "dish-card-unavailable"}`} initial={reducedMotion ? false : { opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: .18 }} transition={{ duration: .4, delay: reducedMotion ? 0 : (revealIndex % 6) * .045 }} whileHover={reducedMotion ? undefined : { y: -6, rotateX: 2, rotateY: -2, transition: { type: "spring", stiffness: 260, damping: 22 } }} style={{ transformStyle: "preserve-3d", perspective: 900 }}>
       <div className="dish-image">
-        <button type="button" className="dish-image-zoom" aria-label={`View ${localized.name} photo`} onClick={() => { recordRecentDish(dish.id); setLightboxOpen(true); }}>
+        <button type="button" className="dish-image-zoom" aria-label={`${t("viewPhoto")} ${localized.name}`} onClick={() => { recordRecentDish(dish.id); setLightboxOpen(true); }}>
         {dish.imageUrl && !imageFailed
         ? <motion.div className="dish-photo-motion" whileHover={reducedMotion ? undefined : { scale: 1.045, x: -3 }} transition={{ type: "spring", stiffness: 80, damping: 22 }}><Image src={dish.imageUrl} alt={localized.name} fill sizes="(max-width: 640px) 92vw, (max-width: 1000px) 45vw, 30vw" unoptimized className="dish-photo" onError={() => setImageFailed(true)} /></motion.div>
-        : <span className="dish-image-fallback" role="img" aria-label={`${localized.name} image unavailable`}>{dish.image}</span>}
+        : <span className="dish-image-fallback" role="img" aria-label={`${localized.name} ${t("imageUnavailable")}`}>{dish.image}</span>}
         </button>
         <FavoriteButton dishId={dish.id} />
       </div>
       <div className="dish-info">
-        <div className="dish-title-row"><h3>{localized.name}</h3><span className="dish-price">Rs. <AnimatedPrice value={portion.price} /></span></div>
+        <div className="dish-title-row"><h3>{localized.name}</h3><span className="dish-price"><AnimatedPrice value={portion.price} format={formatCurrency} /></span></div>
         <p className="dish-description">{localized.description}</p>
-        <div className="dish-meta"><span aria-label={dish.rating ? `${dish.rating} ${t("rating")}` : "Rating not yet available"}>{dish.rating ? `★ ${dish.rating.toFixed(1)} (${dish.ratingCount ?? 0})` : "☆☆☆☆☆"}</span><span>{dish.servingSize ? `${t("weight")}: ${dish.servingSize}` : "◷  Est. 25–35 min"}</span></div>
+        <div className="dish-meta"><span aria-label={dish.rating ? `${dish.rating} ${t("rating")}` : t("ratingUnavailable")}>{dish.rating ? `★ ${dish.rating.toFixed(1)} (${dish.ratingCount ?? 0})` : "☆☆☆☆☆"}</span><span>{dish.servingSize ? `${t("weight")}: ${dish.servingSize}` : `◷  ${t("estimatedTime")}`}</span></div>
+        <DishQrLink dishId={dish.id} dishName={localized.name} />
         {(dish.dietaryTags?.length || !available) ? <div className="dish-tags">{dish.dietaryTags?.map((tag) => <span key={tag}>{tag}</span>)}{!available && <span className="dish-stock-out">{t("unavailable")}</span>}</div> : null}
         <div className="portion-picker" role="radiogroup" aria-label={`${t("portion")} ${localized.name}`}>
           {dish.portions.map((option, index) => (
             <button type="button" role="radio" aria-checked={portionIndex === index} key={option.name} onClick={() => setPortionIndex(index)} className={`portion-option ${portionIndex === index ? "selected" : ""}`}>
-              {option.name} · Rs. {option.price}
+              {option.name} · {formatCurrency(option.price)}
             </button>
           ))}
         </div>
         <motion.button type="button" className="add-button" disabled={!available} whileTap={reducedMotion ? undefined : { scale: .96 }} onClick={() => setCustomizing(true)}>
-          <span aria-hidden="true">＋</span> {available ? t("customize") : kitchen?.available === false ? "Kitchen closed" : t("unavailable")}
+          <span aria-hidden="true">＋</span>           {available ? t("customize") : kitchen?.available === false ? t("kitchenClosed") : t("unavailable")}
         </motion.button>
-        <button type="button" className="dish-share-button" onClick={() => void shareDish()}>Share dish</button>
+        <button type="button" className="dish-share-button" onClick={() => void shareDish()}>{t("shareDish")}</button>
         {shareMessage && <small role="status">{shareMessage}</small>}
       </div>
       {lightboxOpen && typeof document !== "undefined" && createPortal(
         <div className="dish-lightbox" role="dialog" aria-modal="true" aria-label={`${localized.name} photo`} onMouseDown={(event) => { if (event.target === event.currentTarget) setLightboxOpen(false); }}>
-          <button type="button" aria-label="Close photo" onClick={() => setLightboxOpen(false)}>×</button>
+          <button type="button" aria-label={t("close")} onClick={() => setLightboxOpen(false)}>×</button>
           {dish.imageUrl && !imageFailed ? <Image src={dish.imageUrl} alt={localized.name} width={1200} height={900} unoptimized /> : <span>{dish.image}</span>}
         </div>, document.body
       )}
@@ -136,7 +138,7 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
         }}>
           <motion.section className="dish-dialog" role="dialog" aria-modal="true" aria-labelledby={`dish-dialog-${dish.id}`} initial={{ opacity: 0, y: 18, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ type: "spring", stiffness: 300, damping: 28 }}>
             <button type="button" className="dish-dialog-close" aria-label="Close customization" onClick={() => setCustomizing(false)}>×</button>
-            <span className="store-eyebrow">MADE FRESH TO ORDER</span>
+            <span className="store-eyebrow">{t("madeFreshToOrder")}</span>
             <h2 id={`dish-dialog-${dish.id}`}>{localized.name}</h2>
             <p>{localized.description}</p>
             <div className="dialog-field">
@@ -144,32 +146,32 @@ export function DishCard({ dish, revealIndex = 0 }: { dish: Dish; revealIndex?: 
               <div className="portion-picker" role="radiogroup" aria-label={`Choose a portion of ${dish.name}`}>
                 {dish.portions.map((option, index) => (
                   <button type="button" role="radio" aria-checked={portionIndex === index} key={option.name} onClick={() => setPortionIndex(index)} className={`portion-option ${portionIndex === index ? "selected" : ""}`}>
-                    {option.name} · Rs. {option.price}
+                    {option.name} · {formatCurrency(option.price)}
                   </button>
                 ))}
               </div>
             </div>
             <div className="dialog-field">
-              <span className="dialog-label">Optional add-ons</span>
+              <span className="dialog-label">{t("optionalAddOns")}</span>
               <div className="dialog-addon-list">
-                {addOns.map((addOn) => <label key={addOn.name} className={`dialog-addon ${selectedAddOns.includes(addOn.name) ? "selected" : ""}`}><input type="checkbox" checked={selectedAddOns.includes(addOn.name)} onChange={(event) => setSelectedAddOns((current) => event.target.checked ? [...current, addOn.name] : current.filter((item) => item !== addOn.name))} /><span>{addOn.name}</span><b>{addOn.price ? `+ Rs. ${addOn.price}` : "Free"}</b></label>)}
+                {addOns.map((addOn) => <label key={addOn.name} className={`dialog-addon ${selectedAddOns.includes(addOn.name) ? "selected" : ""}`}><input type="checkbox" checked={selectedAddOns.includes(addOn.name)} onChange={(event) => setSelectedAddOns((current) => event.target.checked ? [...current, addOn.name] : current.filter((item) => item !== addOn.name))} /><span>{addOn.name}</span><b>{addOn.price ? `+ ${formatCurrency(addOn.price)}` : t("free")}</b></label>)}
               </div>
             </div>
-            <label className="field dialog-field">Spice level<select value={spiceLevel} onChange={(event) => setSpiceLevel(event.target.value as "Mild" | "Medium" | "Hot")}><option>Mild</option><option>Medium</option><option>Hot</option></select></label>
+            <label className="field dialog-field">{t("spiceLevel")}<select value={spiceLevel} onChange={(event) => setSpiceLevel(event.target.value as "Mild" | "Medium" | "Hot")}><option value="Mild">{t("mild")}</option><option value="Medium">{t("medium")}</option><option value="Hot">{t("hot")}</option></select></label>
             {(dish.allergens?.length || dish.nutrition) && <div className="dish-nutrition">
-              {dish.allergens?.length ? <p><strong>Allergens:</strong> {dish.allergens.join(", ")}</p> : null}
-              {dish.nutrition && <p><strong>Nutrition per serving:</strong> {dish.nutrition.calories ?? "—"} kcal · Protein {dish.nutrition.proteinGrams ?? "—"}g · Carbs {dish.nutrition.carbsGrams ?? "—"}g · Fat {dish.nutrition.fatGrams ?? "—"}g</p>}
+              {dish.allergens?.length ? <p><strong>{t("allergens")}:</strong> {dish.allergens.join(", ")}</p> : null}
+              {dish.nutrition && <p><strong>{t("nutritionPerServing")}:</strong> {dish.nutrition.calories ?? "—"} kcal · {t("protein")} {dish.nutrition.proteinGrams ?? "—"}g · {t("carbs")} {dish.nutrition.carbsGrams ?? "—"}g · {t("fat")} {dish.nutrition.fatGrams ?? "—"}g</p>}
             </div>}
-            <label className="field dialog-field">{t("instructions")}<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={240} placeholder="Any preferences for the kitchen? (optional)" /></label>
+            <label className="field dialog-field">{t("instructions")}<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={240} placeholder={t("kitchenPreferences")} /></label>
             <div className="dialog-bottom">
               <div className="quantity-control" aria-label={t("quantity")}>
-                <button type="button" aria-label="Decrease quantity" onClick={() => setQuantity((value) => Math.max(1, value - 1))}>−</button>
+                <button type="button" aria-label={t("decreaseQuantity")} onClick={() => setQuantity((value) => Math.max(1, value - 1))}>−</button>
                 <span aria-live="polite">{quantity}</span>
-                <button type="button" aria-label="Increase quantity" onClick={() => setQuantity((value) => value + 1)}>＋</button>
+                <button type="button" aria-label={t("increaseQuantity")} onClick={() => setQuantity((value) => value + 1)}>＋</button>
               </div>
-              <motion.button type="button" className="add-button" whileTap={reducedMotion ? undefined : { scale: .96 }} onClick={() => { recordRecentDish(dish.id); addToCart(false); }}>{t("add")} · Rs. {(portion.price + addOnTotal) * quantity}</motion.button>
+              <motion.button type="button" className="add-button" whileTap={reducedMotion ? undefined : { scale: .96 }} onClick={() => { recordRecentDish(dish.id); addToCart(false); }}>{t("add")} · {formatCurrency((portion.price + addOnTotal) * quantity)}</motion.button>
             </div>
-            <motion.button type="button" className="add-button dialog-checkout-button" whileTap={reducedMotion ? undefined : { scale: .98 }} onClick={() => { recordRecentDish(dish.id); addToCart(true); }}>Add to cart & checkout <span aria-hidden="true">→</span></motion.button>
+            <motion.button type="button" className="add-button dialog-checkout-button" whileTap={reducedMotion ? undefined : { scale: .98 }} onClick={() => { recordRecentDish(dish.id); addToCart(true); }}>{t("addToCartAndCheckout")} <span aria-hidden="true">→</span></motion.button>
           </motion.section>
         </div>, document.body
       )}

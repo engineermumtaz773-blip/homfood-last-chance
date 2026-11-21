@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import type { Dish } from "@/lib/data";
 import { useCart } from "@/components/cart-provider";
+import { useSiteSettings } from "@/components/site-settings";
 
 type Upsell = { dish: Dish; label: string; defaultQty: number };
 
 export function CartUpsells() {
   const { items, addItem } = useCart();
+  const { t, locale, formatCurrency } = useSiteSettings();
   const [suggestions, setSuggestions] = useState<Upsell[]>([]);
   const [error, setError] = useState("");
 
@@ -30,19 +32,19 @@ export function CartUpsells() {
   if (!visible.length && !error) return null;
 
   return (
-    <section className="cart-upsells" aria-label="Suggested dishes">
-      <h3>Complete your meal</h3>
+    <section className="cart-upsells" aria-label={t("suggestedDishes")}>
+      <h3>{t("completeMeal")}</h3>
       {error && <p role="status">{error}</p>}
       {visible.map(({ dish, label, defaultQty }) => (
         <article className="cart-upsell-item" key={dish.id}>
-          <div><strong>{dish.name}</strong><small>{label} · from PKR {Math.min(...dish.portions.map((portion) => portion.price))}</small></div>
+          <div><strong>{locale === "en" ? dish.name : dish.translations?.[locale]?.name || dish.name}</strong><small>{label} · {t("from")} {formatCurrency(Math.min(...dish.portions.map((portion) => portion.price)))}</small></div>
           <button type="button" className="checkout-raast-select" onClick={() => addItem({
             id: dish.id,
             name: dish.name,
             portion: dish.portions[0]?.name || "Full Plate",
             price: dish.portions[0]?.price || 0,
             quantity: defaultQty,
-          })}>Add</button>
+          })}>{t("add")}</button>
         </article>
       ))}
     </section>

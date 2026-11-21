@@ -19,7 +19,7 @@ export function SearchBar({
   function startVoiceSearch() {
     const recognition = createSpeechRecognition();
     if (!recognition) {
-      setMessage("Voice search is not supported in this browser.");
+      setMessage(t("voiceUnsupported"));
       return;
     }
     setRecognitionLanguage(recognition, locale);
@@ -27,21 +27,21 @@ export function SearchBar({
       const transcript = event.results[0]?.[0]?.transcript?.trim();
       if (transcript) {
         onChange(transcript);
-        setMessage(`Searching for “${transcript}”.`);
+        setMessage(`${t("searchingFor")} “${transcript}”.`);
       }
     };
     recognition.onerror = (event) => {
-      setMessage(event.error === "not-allowed" ? "Allow microphone access to use voice search." : "Voice search could not hear that. Please try again.");
+      setMessage(event.error === "not-allowed" ? t("microphonePermission") : t("voiceFailed"));
       setListening(false);
     };
     recognition.onend = () => setListening(false);
     try {
       recognition.start();
       setListening(true);
-      setMessage("Listening…");
+      setMessage(t("voiceListening"));
     } catch (error) {
       console.error("Could not start voice menu search.", error);
-      setMessage("Voice search could not start. Please try again.");
+      setMessage(t("voiceFailed"));
     }
   }
 
@@ -52,7 +52,7 @@ export function SearchBar({
         <input aria-label={t("searchMenu")} value={value} onChange={(event) => onChange(event.target.value)} placeholder={t("searchMenu")} />
       </label>
       <button type="button" className="checkout-raast-select" onClick={startVoiceSearch} disabled={listening} aria-pressed={listening}>
-        {listening ? "Listening…" : "🎙 Voice search"}
+        {listening ? t("voiceListening") : `🎙 ${t("voiceSearch")}`}
       </button>
       {message && <small className="voice-status" role="status">{message}</small>}
     </div>

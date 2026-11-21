@@ -1,4 +1,12 @@
 import { WhatsAppForm } from "@/components/whatsapp-form";
+import type { Metadata } from "next";
+import { buildPageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: "Contact Home Made Food",
+  description: "Contact Home Made Food in Bahawalpur for orders, delivery questions, and special requests.",
+  path: "/contact",
+});
 
 const visitAddress = "Goheer town, street no 2, university chowk, Bahawalpur, Pakistan";
 const visitMapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(visitAddress)}`;

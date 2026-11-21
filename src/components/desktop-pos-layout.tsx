@@ -17,6 +17,8 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { getFavoriteDishIds, FAVORITES_CHANGE_EVENT } from "@/lib/favorites";
 import { useKitchenAvailability } from "@/hooks/use-kitchen-availability";
+import { DishQrLink } from "@/components/dish-qr-link";
+import { useSiteSettings } from "@/components/site-settings";
 
 const POS_CATEGORIES = [
   { id: "All", name: "All", icon: "🥘" },
@@ -34,6 +36,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
   const liveCatalog = useLiveDishes(initialDishes);
   const kitchen = useKitchenAvailability();
   const { items, addItem, updateQuantity, removeItem, clearCart } = useCart();
+  const { formatCurrency } = useSiteSettings();
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPrice, setFilterPrice] = useState<"all" | "under_300" | "300_600" | "600_plus">("all");
@@ -502,9 +505,9 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                 <strong>Price range</strong>
                 {[
                   ["all", "Any price"],
-                  ["under_300", "Under PKR 300"],
-                  ["300_600", "PKR 300–600"],
-                  ["600_plus", "PKR 600+"],
+                  ["under_300", `Under ${formatCurrency(300)}`],
+                  ["300_600", `${formatCurrency(300)}–${formatCurrency(600)}`],
+                  ["600_plus", `${formatCurrency(600)}+`],
                 ].map(([value, label]) => (
                   <button
                     key={value}
@@ -771,6 +774,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                     >
                       {dish.description}
                     </p>
+                    <DishQrLink dishId={dish.id} dishName={dish.name} />
                   </div>
 
                   <div
@@ -794,7 +798,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                           color: "#059669",
                         }}
                       >
-                        PKR {portion.price.toLocaleString()}
+                        {formatCurrency(portion.price)}
                       </span>
                     </div>
 
@@ -1034,7 +1038,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
                       {line.name}
                     </div>
                     <div style={{ fontSize: "11px", color: "#64748b" }}>
-                      {line.portion} · PKR {line.price.toLocaleString()}
+                      {line.portion} · {formatCurrency(line.price)}
                     </div>
                   </div>
 
@@ -1147,7 +1151,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
               }}
             >
               <span>Subtotal</span>
-              <span style={{ fontWeight: 600 }}>PKR {subtotal.toLocaleString()}</span>
+              <span style={{ fontWeight: 600 }}>{formatCurrency(subtotal)}</span>
             </div>
 
             <div
@@ -1161,7 +1165,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
             >
               <span>Delivery Fee ({serviceMode})</span>
               <span style={{ fontWeight: 600 }}>
-                {deliveryFee === 0 ? "FREE" : `PKR ${deliveryFee}`}
+                {deliveryFee === 0 ? "FREE" : formatCurrency(deliveryFee)}
               </span>
             </div>
 
@@ -1178,7 +1182,7 @@ export function DesktopPosLayout({ dishes: initialDishes }: { dishes: Dish[] }) 
               }}
             >
               <span>Total Amount</span>
-              <span style={{ color: "#059669" }}>PKR {grandTotal.toLocaleString()}</span>
+              <span style={{ color: "#059669" }}>{formatCurrency(grandTotal)}</span>
             </div>
 
             {/* Instant Raast Dynamic QR Charge Button */}

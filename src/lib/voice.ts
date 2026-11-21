@@ -23,14 +23,20 @@ export function setRecognitionLanguage(recognition: SpeechRecognitionLike, local
 }
 
 export function voiceOrderIntent(text: string): { query: string; quantity: number } {
-  const quantityMatch = text.match(/\b(\d{1,2})\b/u);
-  const spokenQuantity = text.match(/\b(one|two|three|four|five)\b/iu)?.[1]?.toLowerCase();
-  const quantityNames: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-  const quantity = Math.min(20, Math.max(1, quantityMatch ? Number(quantityMatch[1]) : quantityNames[spokenQuantity || ""] || 1));
+  const quantityMatch = text.match(/[0-9٠-٩۰-۹]{1,2}/u);
+  const spokenQuantity = text.match(/\b(one|two|three|four|five)\b/iu)?.[1]?.toLowerCase()
+    || text.match(/ایک|دو|تین|چار|پانچ|هڪ|ٻه|ٽي|پنج/u)?.[0];
+  const quantityNames: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    "ایک": 1, "دو": 2, "تین": 3, "چار": 4, "پانچ": 5,
+    "هڪ": 1, "ٻه": 2, "ٽي": 3, "پنج": 5,
+  };
+  const digits = quantityMatch?.[0].replace(/[٠-٩۰-۹]/gu, (digit) => String("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹".indexOf(digit) % 10));
+  const quantity = Math.min(20, Math.max(1, quantityMatch ? Number(digits) : quantityNames[spokenQuantity || ""] || 1));
   const cleaned = text
-    .replace(/\b(add|order|get|buy|please|i want|one|two|three|four|five|to my cart)\b/giu, " ")
-    .replace(/[\u0600-\u06ff]*(?:شامل|آرڊر|آرڈر|چاہیے|چاهيان ٿو|ڪيو|ڪر)[\u0600-\u06ff]*/gu, " ")
-    .replace(/\b\d{1,2}\b/gu, " ")
+    .replace(/\b(add|order|get|buy|please|i want|one|two|three|four|five|to my cart|checkout|check out)\b/giu, " ")
+    .replace(/(براہِ کرم|براہ کرم|میرے لیے|ایک|دو|تین|چار|پانچ|شامل کریں|شامل کرو|آرڈر کریں|آرڈر کرو|آرڈر|چاہیے|منگوائیں|هڪ|ٻه|ٽي|پنج|آرڊر ڪريو|آرڊر ڪر|شامل ڪريو|چاهيان ٿو|گهرائيو)/gu, " ")
+    .replace(/[0-9٠-٩۰-۹]{1,2}/gu, " ")
     .replace(/[،,۔.!؟?]/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
@@ -39,5 +45,10 @@ export function voiceOrderIntent(text: string): { query: string; quantity: numbe
 
 export function isVoiceOrderIntent(text: string, language: VoiceLanguage): boolean {
   if (language === "EN") return /\b(add|order|get|buy|i want)\b/iu.test(text);
-  return /شامل|آرڊر|آرڈر|چاہیے|چاهيان ٿو|آرڊر ڪريو/u.test(text);
+  return /شامل|آرڊر|آرڈر|چاہیے|منگوائیں|چاهيان ٿو|آرڊر ڪريو|آرڊر ڪر/u.test(text);
+}
+
+export function isVoiceCheckoutIntent(text: string) {
+  return /\b(checkout|check out|place (my )?order|finish (my )?order|go to checkout)\b/iu.test(text) ||
+    /چیک آؤٹ|آرڈر مکمل|آرڊر مڪمل|چيڪ آئوٽ/u.test(text);
 }

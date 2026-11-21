@@ -27,10 +27,11 @@ import { trackFunnelEvent } from "@/lib/funnel";
 const paymentSessionDuration = 5 * 60 * 1000;
 const paymentMethod = "Digital Payment";
 const money = new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 });
+const getCurrentTimeMs = () => Date.now();
 
 export function CheckoutForm() {
   const router = useRouter();
-  const { t } = useSiteSettings();
+  const { t, formatCurrency } = useSiteSettings();
   const { items, removeItem, updateQuantity, clearCart } = useCart();
   const kitchen = useKitchenAvailability();
   const [submitError, setSubmitError] = useState("");
@@ -285,13 +286,14 @@ export function CheckoutForm() {
     const address = String(formData.get("address") ?? "").trim();
     const deliveryTime = String(formData.get("deliveryTime") ?? "As soon as possible").trim();
     if (selectedZone && subtotal < selectedZone.min_order_amount) {
-      setSubmitError(`This delivery area requires a minimum order of Rs. ${selectedZone.min_order_amount.toLocaleString()}.`);
+      setSubmitError(`This delivery area requires a minimum order of ${formatCurrency(selectedZone.min_order_amount)}.`);
       setIsSubmitting(false);
       return;
     }
     if (scheduleSlot) {
       const slotTime = new Date(scheduleSlot).getTime();
-      if (!Number.isFinite(slotTime) || slotTime < Date.now() + 15 * 60_000 || slotTime > Date.now() + 30 * 24 * 60 * 60_000) {
+      const now = getCurrentTimeMs();
+      if (!Number.isFinite(slotTime) || slotTime < now + 15 * 60_000 || slotTime > now + 30 * 24 * 60 * 60_000) {
         setSubmitError("Choose a delivery slot at least 15 minutes from now and within 30 days.");
         setIsSubmitting(false);
         return;
@@ -405,7 +407,7 @@ export function CheckoutForm() {
         preferredPayment: paymentMethod,
       });
     }
-    const expiresAt = Date.now() + paymentSessionDuration;
+    const expiresAt = getCurrentTimeMs() + paymentSessionDuration;
     saveRaastSession({
       orderNumber,
       amount: orderTotal,
@@ -465,7 +467,7 @@ export function CheckoutForm() {
           <label className="field">{t("phoneNumber")}<input name="phone" required autoComplete="tel" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="03xx xxxxxxx" /></label>
           <label className="field full">Email (optional)<input name="email" type="email" autoComplete="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="name@example.com" /></label>
           {savedAddresses.length > 0 && <label className="field full">Use a saved address<select value={selectedSavedAddress} onChange={(event) => selectSavedAddress(event.target.value)}><option value="">Enter a new address</option>{savedAddresses.map((saved) => <option key={saved} value={saved}>{saved}</option>)}</select></label>}
-          <label className="field full">{t("deliveryArea")}<select name="area" required value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)}><option value="" disabled>{t("chooseArea")}</option>{deliveryZones.length ? deliveryZones.map((zone) => <option key={zone.id} value={zone.zone_name}>{zone.zone_name} · Rs. {zone.delivery_fee}</option>) : (storeSettings?.delivery.deliveryAreas || ["Bahawalpur city", "Model Town", "University Chowk", "Other Bahawalpur area"]).map((area) => <option key={area}>{area}</option>)}</select>{selectedZone && <small>Estimated delivery: {selectedZone.estimated_minutes} min{selectedZone.min_order_amount ? ` · Minimum Rs. ${selectedZone.min_order_amount}` : ""}</small>}{zoneError && <small role="alert">Live zone pricing is unavailable. Please retry shortly.</small>}</label>
+          <label className="field full">{t("deliveryArea")}<select name="area" required value={deliveryArea} onChange={(event) => setDeliveryArea(event.target.value)}><option value="" disabled>{t("chooseArea")}</option>{deliveryZones.length ? deliveryZones.map((zone) => <option key={zone.id} value={zone.zone_name}>{zone.zone_name} · {formatCurrency(zone.delivery_fee)}</option>) : (storeSettings?.delivery.deliveryAreas || ["Bahawalpur city", "Model Town", "University Chowk", "Other Bahawalpur area"]).map((area) => <option key={area}>{area}</option>)}</select>{selectedZone && <small>Estimated delivery: {selectedZone.estimated_minutes} min{selectedZone.min_order_amount ? ` · Minimum ${formatCurrency(selectedZone.min_order_amount)}` : ""}</small>}{zoneError && <small role="alert">Live zone pricing is unavailable. Please retry shortly.</small>}</label>
           <label className="field full">{t("fullAddress")}<textarea name="address" required autoComplete="street-address" value={deliveryAddress} onChange={(event) => { setDeliveryAddress(event.target.value); setSelectedSavedAddress(""); }} placeholder={t("fullAddress")} /></label>
           <label className="field full">Delivery timing<select name="deliveryTime" defaultValue="As soon as possible"><option>As soon as possible</option><option>Today · 12:00–2:00 PM</option><option>Today · 2:00–5:00 PM</option><option>Today · 6:00–9:00 PM</option></select></label>
           <div className="field full"><SchedulePicker value={scheduleSlot} onChange={setScheduleSlot} planId={schedulePlanId} onPlanChange={setSchedulePlanId} /></div>
@@ -486,7 +488,7 @@ export function CheckoutForm() {
             <tbody>{items.map((item) => <motion.tr layout key={`${item.id}-${item.portion}-${item.specialInstructions ?? ""}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <td><strong>{item.name}</strong><small>{item.portion}{item.specialInstructions ? ` · ${item.specialInstructions}` : ""}</small>{!raastSession && <button type="button" onClick={() => removeItem(item.id, item.portion, item.specialInstructions)} className="remove-cart-item">Remove</button>}</td>
               <td><span className="quantity-control checkout-quantity"><button type="button" aria-label={`Decrease ${item.name} quantity`} disabled={Boolean(raastSession)} onClick={() => updateQuantity(item.id, item.portion, item.quantity - 1, item.specialInstructions)}>−</button><span>{item.quantity}</span><button type="button" aria-label={`Increase ${item.name} quantity`} disabled={Boolean(raastSession)} onClick={() => updateQuantity(item.id, item.portion, item.quantity + 1, item.specialInstructions)}>＋</button></span></td>
-              <td className="checkout-table-amount">Rs. {money.format(item.price * item.quantity)}</td>
+              <td className="checkout-table-amount">{formatCurrency(item.price * item.quantity)}</td>
             </motion.tr>)}
             </tbody>
           </table>
@@ -497,9 +499,9 @@ export function CheckoutForm() {
           <div className="checkout-challan-actions"><a className="checkout-raast-select" href={whatsappUrl(buildOrderWhatsAppMessage(orderConfirmation, storeSettings || undefined), getOrderWhatsAppNumber(storeSettings || undefined))} target="_blank" rel="noreferrer">Confirm Order on WhatsApp</a><button type="button" className="checkout-raast-select" onClick={() => void copyWhatsAppMessage(buildOrderWhatsAppMessage(orderConfirmation, storeSettings || undefined))}>Copy order message</button><Link href={`/track-order?order=${encodeURIComponent(orderConfirmation.number)}&phone=${encodeURIComponent(customerPhone)}`}>Track order</Link></div>
           {copyMessage && <small role="status">{copyMessage}</small>}
         </motion.section>}
-        <div className="summary-line"><span>{t("subtotal")}</span><strong>Rs. {subtotal}</strong></div>
-        <div className="summary-line"><span>Delivery</span><strong>{deliveryFee ? `Rs. ${money.format(deliveryFee)}` : "FREE"}</strong></div>
-        <div className="summary-line summary-total"><span>Total</span><strong>{raastSession ? `PKR ${money.format(raastSession.amount)}` : `Rs. ${total}`}</strong></div>
+        <div className="summary-line"><span>{t("subtotal")}</span><strong>{formatCurrency(subtotal)}</strong></div>
+        <div className="summary-line"><span>Delivery</span><strong>{deliveryFee ? formatCurrency(deliveryFee) : t("free")}</strong></div>
+        <div className="summary-line summary-total"><span>Total</span><strong>{formatCurrency(raastSession ? raastSession.amount : total)}</strong></div>
       </motion.aside>
     </div>
     </MotionConfig>

@@ -1,78 +1,94 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Dish } from "@/lib/data";
 import { useCart } from "@/components/cart-provider";
 import { createSpeechRecognition } from "@/lib/web-speech";
-import { detectVoiceLanguage, isVoiceOrderIntent, setRecognitionLanguage, voiceOrderIntent } from "@/lib/voice";
+import { detectVoiceLanguage, isVoiceCheckoutIntent, isVoiceOrderIntent, setRecognitionLanguage, voiceOrderIntent } from "@/lib/voice";
 import { matchesDishSearch } from "@/lib/menu-search";
 import { useSiteSettings } from "@/components/site-settings";
 
-export function VoiceOrder({ dishes }: { dishes: Dish[] }) {
-  const { addItem } = useCart();
-  const { locale } = useSiteSettings();
+export function VoiceOrder({ dishes, onSearch }: { dishes: Dish[]; onSearch?: (query: string) => void }) {
+  const { addItem, items } = useCart();
+  const { locale, t } = useSiteSettings();
+  const router = useRouter();
   const [listening, setListening] = useState(false);
   const [message, setMessage] = useState("");
+  const [added, setAdded] = useState(false);
 
   function startVoiceOrder() {
     const recognition = createSpeechRecognition();
     if (!recognition) {
-      setMessage("Voice ordering is not supported in this browser.");
+      setMessage(t("voiceUnsupported"));
       return;
     }
     setRecognitionLanguage(recognition, locale);
     recognition.onresult = (event) => {
       const transcript = event.results[0]?.[0]?.transcript?.trim() || "";
       const language = detectVoiceLanguage(transcript);
+      if (isVoiceCheckoutIntent(transcript)) {
+        if (items.length) router.push("/checkout");
+        else setMessage(t("voiceOrderEmpty"));
+        return;
+      }
       if (!isVoiceOrderIntent(transcript, language)) {
-        setMessage(`Heard “${transcript}”. Start with an add/order command to confirm an item.`);
+        if (transcript && onSearch) {
+          onSearch(transcript);
+          setMessage(`${t("searchingFor")} “${transcript}”.`);
+        } else {
+          setMessage(`${t("voiceOrderPrompt")} Heard “${transcript}”.`);
+        }
         return;
       }
       const { query, quantity } = voiceOrderIntent(transcript);
       if (!query) {
-        setMessage("Please say a dish name after your add/order command.");
+        setMessage(t("voiceOrderPrompt"));
         return;
       }
       const candidate = dishes.find((dish) => matchesDishSearch(dish, query));
       if (!candidate || !candidate.portions[0]) {
-        setMessage(query ? `I couldn’t find “${query}” on the menu. Please try again.` : "Please say the dish name after your add/order command.");
+        setMessage(`${t("voiceOrderNoMatch")} “${query}”.`);
         return;
       }
-      const localizedName = candidate.translations?.[locale === "en" ? "ur" : locale]?.name || candidate.name;
+      const localized = locale === "en" ? candidate : candidate.translations?.[locale] || candidate;
       addItem({
         id: candidate.id,
-        name: candidate.name,
+        name: localized.name,
         portion: candidate.portions[0].name,
         price: candidate.portions[0].price,
         quantity,
       });
-      setMessage(`Added ${quantity} × ${localizedName} to your cart.`);
+      setAdded(true);
+      setMessage(`${t("voiceOrderAdded")} ${quantity} × ${localized.name}.`);
     };
     recognition.onerror = (event) => {
-      setMessage(event.error === "not-allowed" ? "Allow microphone access to use voice ordering." : "Voice ordering could not hear that. Please try again.");
+      setMessage(event.error === "not-allowed" ? t("microphonePermission") : t("voiceFailed"));
       setListening(false);
     };
     recognition.onend = () => setListening(false);
     try {
       recognition.start();
       setListening(true);
-      setMessage("Say “add” or its Urdu/Sindhi equivalent, then the dish name.");
+      setAdded(false);
+      setMessage(t("voiceOrderPrompt"));
     } catch (error) {
       console.error("Could not start voice ordering.", error);
-      setMessage("Voice ordering could not start. Please try again.");
+      setMessage(t("voiceFailed"));
     }
   }
 
   return (
-    <section className="voice-order-card" aria-label="Voice ordering">
+    <section className="voice-order-card" aria-label={t("voiceOrder")}>
       <div>
-        <strong>Hands-free ordering</strong>
-        <p>Search or add a menu item by voice in English, Urdu, or Sindhi.</p>
+        <strong>{t("voiceOrderTitle")}</strong>
+        <p>{t("voiceOrderDescription")}</p>
         {message && <small className="voice-status" role="status">{message}</small>}
       </div>
       <button type="button" className="checkout-raast-select" onClick={startVoiceOrder} disabled={listening} aria-pressed={listening}>
-        {listening ? "Listening…" : "🎙 Order by voice"}
+        {listening ? t("voiceListening") : `🎙 ${t("voiceOrder")}`}
       </button>
+      {added && items.length > 0 && <button type="button" className="checkout-raast-select" onClick={() => router.push("/checkout")}>{t("goToCheckout")}</button>}
     </section>
   );
 }

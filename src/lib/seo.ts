@@ -7,13 +7,16 @@ export const SITE_DESCRIPTION = "Fresh homemade meals prepared daily and deliver
 export function getSiteUrl() {
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   try {
-    const url = new URL(configured || "https://homefood.engineer");
+    const url = new URL(configured || "https://www.homefood.engineer");
+    if (url.hostname.toLowerCase() === "homefood.engineer") {
+      url.hostname = "www.homefood.engineer";
+    }
     if (url.protocol !== "https:" && process.env.NODE_ENV === "production") {
-      return "https://homefood.engineer";
+      return "https://www.homefood.engineer";
     }
     return url.origin;
   } catch {
-    return "https://homefood.engineer";
+    return "https://www.homefood.engineer";
   }
 }
 
@@ -86,6 +89,26 @@ export function menuStructuredData(dishes: Dish[]) {
         })),
       })),
     }],
+  };
+}
+
+export function dishStructuredData(dish: Dish) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "MenuItem",
+    name: dish.name,
+    description: dish.description,
+    image: dish.imageUrl ? [dish.imageUrl] : undefined,
+    recipeIngredient: dish.ingredients?.length ? dish.ingredients : undefined,
+    recipeInstructions: dish.preparation
+      ? { "@type": "HowToStep", text: dish.preparation }
+      : undefined,
+    offers: dish.portions.map((portion) => ({
+      "@type": "Offer",
+      price: portion.price,
+      priceCurrency: "PKR",
+      availability: dish.available === false ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
+    })),
   };
 }
 
